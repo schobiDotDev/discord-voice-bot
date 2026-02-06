@@ -1,7 +1,6 @@
 import { VoiceConnection, EndBehaviorType } from '@discordjs/voice';
-import { createWriteStream, promises as fs } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { Readable, Transform } from 'node:stream';
+import { createWriteStream } from 'node:fs';
+import { Transform } from 'node:stream';
 import prism from 'prism-media';
 import { logger } from '../utils/logger.js';
 import { config } from '../config.js';

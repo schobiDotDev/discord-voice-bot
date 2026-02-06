@@ -1,5 +1,5 @@
 import { VoiceConnection } from '@discordjs/voice';
-import type { VoiceBasedChannel, GuildMember } from 'discord.js';
+import type { VoiceBasedChannel } from 'discord.js';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { cleanupAudioFiles } from '../utils/audio.js';
@@ -39,7 +39,7 @@ export class VoiceAssistant {
     this.conversationService = conversationService;
 
     // Set up TTS provider for voice player
-    voicePlayer.setTTSProvider(ttsProvider);
+    voicePlayer.setTTSProvider(this.ttsProvider);
 
     // Set up recording callback
     voiceRecorder.onRecordingComplete(this.handleRecording.bind(this));
@@ -281,7 +281,7 @@ export class VoiceAssistant {
 
   private async handleBuiltInCommands(
     text: string,
-    guildId: string,
+    _guildId: string,
     userId: string,
     state: GuildState
   ): Promise<boolean> {

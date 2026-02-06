@@ -21,7 +21,6 @@ export class Bot {
   private client: Client;
   private voiceAssistant: VoiceAssistant;
   private conversationService: ConversationService;
-  private isReady = false;
 
   constructor() {
     this.client = new Client({
@@ -94,7 +93,6 @@ export class Bot {
     // Ready event
     this.client.once(Events.ClientReady, (client) => {
       logger.info(`Logged in as ${client.user.tag}`);
-      this.isReady = true;
     });
 
     // Slash command handling

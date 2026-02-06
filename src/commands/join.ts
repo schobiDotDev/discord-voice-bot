@@ -1,9 +1,4 @@
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  GuildMember,
-  PermissionFlagsBits,
-} from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { voiceConnectionManager } from '../voice/index.js';
 import type { VoiceAssistant, VoiceMode } from '../services/index.js';

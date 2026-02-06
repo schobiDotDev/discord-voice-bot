@@ -1,4 +1,4 @@
-import { Collection, REST, Routes, ChatInputCommandInteraction } from 'discord.js';
+import { REST, Routes, ChatInputCommandInteraction } from 'discord.js';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 import type { VoiceAssistant, ConversationService } from '../services/index.js';

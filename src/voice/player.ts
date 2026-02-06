@@ -8,7 +8,6 @@ import {
 } from '@discordjs/voice';
 import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import ffmpeg from 'fluent-ffmpeg';
 import { Readable } from 'node:stream';
 import { logger } from '../utils/logger.js';

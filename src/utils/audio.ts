@@ -1,5 +1,5 @@
 import ffmpeg from 'fluent-ffmpeg';
-import { createReadStream, createWriteStream, promises as fs } from 'node:fs';
+import { createWriteStream, promises as fs } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import path from 'node:path';

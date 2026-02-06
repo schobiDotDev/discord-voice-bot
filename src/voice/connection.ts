@@ -3,7 +3,6 @@ import {
   VoiceConnection,
   VoiceConnectionStatus,
   entersState,
-  getVoiceConnection,
 } from '@discordjs/voice';
 import type { VoiceBasedChannel, Guild } from 'discord.js';
 import { logger } from '../utils/logger.js';
