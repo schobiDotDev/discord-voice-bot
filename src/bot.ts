@@ -1,24 +1,20 @@
-import {
-  Client,
-  GatewayIntentBits,
-  Events,
-  VoiceState,
-} from 'discord.js';
+import { Client, GatewayIntentBits, Events, VoiceState } from 'discord.js';
 import { config } from './config.js';
 import { logger } from './utils/logger.js';
 import { ensureDirectories, cleanupAllRecordings } from './utils/audio.js';
 import { voiceConnectionManager } from './voice/index.js';
 import { createSTTProvider } from './providers/stt/index.js';
-import { createLLMProvider } from './providers/llm/index.js';
 import { createTTSProvider } from './providers/tts/index.js';
-import { ConversationService, VoiceAssistant } from './services/index.js';
+import { TextBridgeService, ConversationService, VoiceAssistant } from './services/index.js';
 import { registerCommands, handleCommand, type CommandContext } from './commands/index.js';
 
 /**
  * Discord Voice Bot
+ * Voice-to-text bridge that integrates with external bots for responses
  */
 export class Bot {
   private client: Client;
+  private textBridge: TextBridgeService;
   private voiceAssistant: VoiceAssistant;
   private conversationService: ConversationService;
 
@@ -34,16 +30,14 @@ export class Bot {
 
     // Initialize providers
     const sttProvider = createSTTProvider();
-    const llmProvider = createLLMProvider();
     const ttsProvider = createTTSProvider();
 
+    // Initialize text bridge (needs client for Discord message handling)
+    this.textBridge = new TextBridgeService(this.client);
+
     // Initialize services
-    this.conversationService = new ConversationService(llmProvider);
-    this.voiceAssistant = new VoiceAssistant(
-      sttProvider,
-      ttsProvider,
-      this.conversationService
-    );
+    this.conversationService = new ConversationService(this.textBridge);
+    this.voiceAssistant = new VoiceAssistant(sttProvider, ttsProvider, this.conversationService);
 
     this.setupEventHandlers();
   }
@@ -72,6 +66,9 @@ export class Bot {
   async stop(): Promise<void> {
     logger.info('Shutting down...');
 
+    // Cancel all pending text bridge requests
+    this.conversationService.cancelAll();
+
     // Destroy all voice connections
     voiceConnectionManager.destroyAll();
 
@@ -90,15 +87,29 @@ export class Bot {
       conversationService: this.conversationService,
     };
 
-    // Ready event
+    // Ready event - initialize text bridge after login
     this.client.once(Events.ClientReady, (client) => {
       logger.info(`Logged in as ${client.user.tag}`);
+
+      this.textBridge
+        .initialize()
+        .then(() => {
+          logger.info('Text bridge ready');
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.error(`Failed to initialize text bridge: ${message}`);
+          process.exit(1);
+        });
     });
 
     // Slash command handling
-    this.client.on(Events.InteractionCreate, async (interaction) => {
+    this.client.on(Events.InteractionCreate, (interaction) => {
       if (!interaction.isChatInputCommand()) return;
-      await handleCommand(interaction, commandContext);
+      handleCommand(interaction, commandContext).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`Command error: ${message}`);
+      });
     });
 
     // Voice state updates (user join/leave)
@@ -133,7 +144,7 @@ export class Bot {
 
     // User joined our channel
     if (newState.channelId === ourChannelId && oldState.channelId !== ourChannelId) {
-      this.voiceAssistant.handleUserJoin(guildId, userId);
+      this.voiceAssistant.handleUserJoin(guildId, userId, newState.member ?? undefined);
     }
 
     // User left our channel

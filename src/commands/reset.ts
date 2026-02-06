@@ -4,7 +4,7 @@ import type { ConversationService } from '../services/index.js';
 
 export const data = new SlashCommandBuilder()
   .setName('reset')
-  .setDescription('Reset your conversation history');
+  .setDescription('Cancel any pending voice request');
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
@@ -12,14 +12,20 @@ export async function execute(
 ): Promise<void> {
   const userId = interaction.user.id;
 
-  conversationService.reset(userId);
+  if (conversationService.hasPendingRequest(userId)) {
+    conversationService.cancel(userId);
+    await interaction.reply({
+      content: '✅ Pending request has been cancelled.',
+      ephemeral: true,
+    });
+  } else {
+    await interaction.reply({
+      content: 'ℹ️ No pending request to cancel.',
+      ephemeral: true,
+    });
+  }
 
-  await interaction.reply({
-    content: '✅ Conversation history has been reset.',
-    ephemeral: true,
-  });
-
-  logger.info(`Conversation reset`, {
+  logger.info(`Reset command used`, {
     userId,
     guildId: interaction.guildId!,
   });

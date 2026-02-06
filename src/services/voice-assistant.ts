@@ -1,5 +1,5 @@
 import { VoiceConnection } from '@discordjs/voice';
-import type { VoiceBasedChannel } from 'discord.js';
+import type { VoiceBasedChannel, GuildMember } from 'discord.js';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { cleanupAudioFiles } from '../utils/audio.js';
@@ -20,7 +20,7 @@ interface GuildState {
 
 /**
  * Voice Assistant orchestrates the full voice interaction flow:
- * Recording -> STT -> LLM -> TTS -> Playback
+ * Recording -> STT -> Text Bridge -> TTS -> Playback
  */
 export class VoiceAssistant {
   private sttProvider: STTProvider;
@@ -42,17 +42,18 @@ export class VoiceAssistant {
     voicePlayer.setTTSProvider(this.ttsProvider);
 
     // Set up recording callback
-    voiceRecorder.onRecordingComplete(this.handleRecording.bind(this));
+    voiceRecorder.onRecordingComplete((result) => {
+      this.handleRecording(result).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`Recording handler error: ${message}`);
+      });
+    });
   }
 
   /**
    * Start voice assistant for a channel
    */
-  async start(
-    connection: VoiceConnection,
-    channel: VoiceBasedChannel,
-    mode: VoiceMode = 'normal'
-  ): Promise<void> {
+  start(connection: VoiceConnection, channel: VoiceBasedChannel, mode: VoiceMode = 'normal'): void {
     const guildId = channel.guild.id;
 
     this.guildStates.set(guildId, {
@@ -67,6 +68,13 @@ export class VoiceAssistant {
     // Start recording for all members in the channel
     const memberIds = this.getChannelMemberIds(channel);
     voiceRecorder.startRecordingAll(connection, memberIds);
+
+    // Store usernames for members
+    for (const [memberId, member] of channel.members) {
+      if (!member.user.bot) {
+        this.conversationService.setUsername(memberId, member.displayName);
+      }
+    }
 
     logger.info(`Voice assistant started in ${channel.name}`, {
       guildId,
@@ -84,6 +92,7 @@ export class VoiceAssistant {
 
     voiceRecorder.stopAll();
     voicePlayer.stop();
+    this.conversationService.cancelAll();
     this.guildStates.delete(guildId);
 
     logger.info(`Voice assistant stopped`, { guildId });
@@ -92,12 +101,17 @@ export class VoiceAssistant {
   /**
    * Handle a new user joining the voice channel
    */
-  handleUserJoin(guildId: string, userId: string): void {
+  handleUserJoin(guildId: string, userId: string, member?: GuildMember): void {
     const state = this.guildStates.get(guildId);
     if (!state) return;
 
     logger.info(`User joined voice channel`, { guildId, userId });
     voiceRecorder.startRecording(state.connection, userId);
+
+    // Store username if member info is available
+    if (member) {
+      this.conversationService.setUsername(userId, member.displayName);
+    }
   }
 
   /**
@@ -109,6 +123,7 @@ export class VoiceAssistant {
 
     logger.info(`User left voice channel`, { guildId, userId });
     voiceRecorder.stopRecording(userId);
+    this.conversationService.cancel(userId);
   }
 
   /**
@@ -119,6 +134,7 @@ export class VoiceAssistant {
     if (!state) return;
 
     voicePlayer.stop();
+    this.conversationService.cancelAll();
     state.isProcessing = false;
     logger.info(`Voice assistant interrupted`, { guildId });
   }
@@ -203,21 +219,14 @@ export class VoiceAssistant {
         return;
       }
 
-      // Check for built-in commands
-      const handled = await this.handleBuiltInCommands(cleanedText, guildId, userId, guildState);
-      if (handled) {
-        voiceRecorder.restartRecording(guildState.connection, userId);
-        return;
-      }
-
-      // Process with LLM
+      // Mark as processing
       guildState.isProcessing = true;
 
       // Play confirmation sound
       await this.playConfirmation(guildState);
 
-      // Get LLM response
-      const response = await this.conversationService.chat(userId, cleanedText, freeMode);
+      // Post to text channel and wait for response
+      const response = await this.conversationService.chat(userId, cleanedText);
 
       if (!response) {
         guildState.isProcessing = false;
@@ -235,7 +244,8 @@ export class VoiceAssistant {
       guildState.isProcessing = false;
       voiceRecorder.restartRecording(guildState.connection, userId);
     } catch (error) {
-      logger.error(`Voice processing error: ${error}`, { userId });
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`Voice processing error: ${message}`, { userId });
       guildState.isProcessing = false;
       await cleanupAudioFiles(userId);
       voiceRecorder.restartRecording(guildState.connection, userId);
@@ -249,9 +259,7 @@ export class VoiceAssistant {
     if (normalized.length < 2) return true;
 
     // Ignore common false positives
-    return this.ignorePhrases.some((phrase) =>
-      normalized.includes(phrase.toLowerCase())
-    );
+    return this.ignorePhrases.some((phrase) => normalized.includes(phrase.toLowerCase()));
   }
 
   private isStopCommand(text: string): boolean {
@@ -260,7 +268,10 @@ export class VoiceAssistant {
     return stopPhrases.some((phrase) => normalized.includes(phrase));
   }
 
-  private checkTrigger(text: string, freeMode: boolean): { triggered: boolean; cleanedText: string } {
+  private checkTrigger(
+    text: string,
+    freeMode: boolean
+  ): { triggered: boolean; cleanedText: string } {
     if (freeMode) {
       return { triggered: true, cleanedText: text };
     }
@@ -277,31 +288,6 @@ export class VoiceAssistant {
     }
 
     return { triggered: false, cleanedText: text };
-  }
-
-  private async handleBuiltInCommands(
-    text: string,
-    _guildId: string,
-    userId: string,
-    state: GuildState
-  ): Promise<boolean> {
-    const normalized = text.toLowerCase().replace(/[.,!?]/g, '');
-
-    // Reset chat history
-    if (normalized.includes('reset') && normalized.includes('chat') && normalized.includes('history')) {
-      await this.playConfirmation(state);
-      this.conversationService.reset(userId);
-      return true;
-    }
-
-    // Leave voice chat
-    if (normalized.includes('leave') && normalized.includes('voice') && normalized.includes('chat')) {
-      await this.playConfirmation(state);
-      // This will be handled by the command layer
-      return false;
-    }
-
-    return false;
   }
 
   private async playConfirmation(state: GuildState): Promise<void> {

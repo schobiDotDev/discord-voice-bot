@@ -102,7 +102,9 @@ export async function cleanupAudioFiles(userId: string): Promise<void> {
 export async function cleanupAllRecordings(): Promise<void> {
   try {
     const files = await fs.readdir(RECORDINGS_DIR);
-    await Promise.all(files.map((file) => fs.unlink(path.join(RECORDINGS_DIR, file)).catch(() => {})));
+    await Promise.all(
+      files.map((file) => fs.unlink(path.join(RECORDINGS_DIR, file)).catch(() => {}))
+    );
     logger.info('Cleaned up all recordings');
   } catch {
     // Directory might not exist yet

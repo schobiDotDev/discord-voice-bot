@@ -1,120 +1,71 @@
-import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
-import type { LLMProvider, ChatMessage } from '../providers/llm/index.js';
-
-interface ConversationState {
-  messages: ChatMessage[];
-  freeMode: boolean;
-}
+import type { TextBridgeService } from './text-bridge.js';
 
 /**
- * Manages conversation history and LLM interactions
+ * Manages voice conversations by bridging to the text channel
  */
 export class ConversationService {
-  private conversations: Map<string, ConversationState> = new Map();
-  private llmProvider: LLMProvider;
+  private textBridge: TextBridgeService;
+  private usernames: Map<string, string> = new Map();
 
-  constructor(llmProvider: LLMProvider) {
-    this.llmProvider = llmProvider;
+  constructor(textBridge: TextBridgeService) {
+    this.textBridge = textBridge;
   }
 
   /**
-   * Get or create a conversation for a user
+   * Set the username for a user (for formatting messages)
    */
-  private getConversation(userId: string, freeMode = false): ConversationState {
-    let conversation = this.conversations.get(userId);
-
-    if (!conversation) {
-      conversation = {
-        messages: [],
-        freeMode,
-      };
-      this.conversations.set(userId, conversation);
-    }
-
-    return conversation;
+  setUsername(userId: string, username: string): void {
+    this.usernames.set(userId, username);
   }
 
   /**
-   * Send a message and get a response from the LLM
+   * Get stored username or fallback to userId
    */
-  async chat(userId: string, userMessage: string, freeMode = false): Promise<string> {
-    const conversation = this.getConversation(userId, freeMode);
+  getUsername(userId: string): string {
+    return this.usernames.get(userId) ?? userId;
+  }
 
-    // Initialize with system prompt if this is a new conversation
-    if (conversation.messages.length === 0) {
-      const systemPrompt = freeMode ? config.llm.systemPromptFree : config.llm.systemPrompt;
-      conversation.messages.push({
-        role: 'system',
-        content: systemPrompt,
-      });
-    }
-
-    // Add user message
-    conversation.messages.push({
-      role: 'user',
-      content: userMessage,
-    });
-
-    // Trim to memory size (keeping system message)
-    while (conversation.messages.length > config.llm.memorySize + 1) {
-      // Remove oldest non-system message
-      conversation.messages.splice(1, 1);
-    }
+  /**
+   * Send a message and wait for a response via the text bridge
+   */
+  async chat(userId: string, userMessage: string): Promise<string> {
+    const username = this.getUsername(userId);
 
     try {
-      const response = await this.llmProvider.chat(conversation.messages);
+      const response = await this.textBridge.postAndWaitForResponse(userId, username, userMessage);
 
-      // Check for ignore signals
-      if (response.includes('IGNORING')) {
-        logger.debug(`LLM chose to ignore message from user ${userId}`);
-        // Remove the user message since we're ignoring
-        conversation.messages.pop();
-        return '';
-      }
-
-      // Add assistant response to history
-      conversation.messages.push({
-        role: 'assistant',
-        content: response,
-      });
-
-      logger.info(`LLM response for user ${userId}: "${response.substring(0, 100)}..."`);
+      logger.info(`Response for user ${username}: "${response.substring(0, 100)}..."`);
       return response;
     } catch (error) {
-      // Remove failed user message from history
-      conversation.messages.pop();
+      if (error instanceof Error && error.message === 'Response timeout') {
+        logger.warn(`No response received for user ${username}`, { userId });
+        return '';
+      }
       throw error;
     }
   }
 
   /**
-   * Reset conversation history for a user
+   * Cancel a pending request for a user
    */
-  reset(userId: string): void {
-    this.conversations.delete(userId);
-    logger.info(`Conversation reset for user ${userId}`);
+  cancel(userId: string): void {
+    this.textBridge.cancelPendingRequest(userId);
+    logger.debug(`Cancelled pending request for user ${userId}`);
   }
 
   /**
-   * Reset all conversations
+   * Cancel all pending requests
    */
-  resetAll(): void {
-    this.conversations.clear();
-    logger.info('All conversations reset');
+  cancelAll(): void {
+    this.textBridge.cancelAll();
+    logger.info('All pending requests cancelled');
   }
 
   /**
-   * Check if user has an active conversation
+   * Check if there's a pending request for a user
    */
-  hasConversation(userId: string): boolean {
-    return this.conversations.has(userId);
-  }
-
-  /**
-   * Get conversation history for a user
-   */
-  getHistory(userId: string): ChatMessage[] {
-    return this.conversations.get(userId)?.messages ?? [];
+  hasPendingRequest(userId: string): boolean {
+    return this.textBridge.hasPendingRequest(userId);
   }
 }

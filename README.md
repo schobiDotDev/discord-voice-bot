@@ -4,60 +4,100 @@
 [![Discord.js](https://img.shields.io/badge/discord.js-v14-5865F2.svg)](https://discord.js.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A modular Discord voice bot that listens to voice channels, transcribes speech, generates responses using LLMs, and speaks back using text-to-speech. Built with TypeScript and a pluggable provider architecture.
+A Discord voice-to-text bridge that listens to voice channels, transcribes speech, and forwards it to a text channel for external bots to respond. Responses are then spoken back via text-to-speech.
+
+Built for integration with external conversational bots (like [OpenClaw](https://github.com/openclaw/openclaw)) that handle the actual conversation logic.
 
 ## ✨ Features
 
 - 🎤 **Voice Activity Detection** - Automatically detects when users speak
 - 🗣️ **Speech-to-Text** - Transcribes speech using Whisper API or local Whisper
-- 🧠 **LLM Integration** - Generates responses using OpenAI or Anthropic models
+- 🔗 **Text Bridge** - Posts transcriptions to a text channel for external bots
 - 🔊 **Text-to-Speech** - Speaks responses using OpenAI TTS, Sherpa-ONNX, or ElevenLabs
 - ⚡ **Wake Word Support** - Responds to trigger words like "Hey Bot"
-- 🔌 **Pluggable Architecture** - Easy to add new STT, LLM, and TTS providers
+- 🔌 **Pluggable Architecture** - Easy to add new STT and TTS providers
 - 🎚️ **Multiple Modes** - Normal, Silent (no sounds), and Free (no wake word) modes
-- 💾 **Conversation Memory** - Maintains context across messages
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Discord Voice Bot                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │
-│  │  Discord │    │   STT    │    │   LLM    │    │   TTS    │  │
-│  │  Voice   │───▶│ Provider │───▶│ Provider │───▶│ Provider │  │
-│  │ Recorder │    │          │    │          │    │          │  │
-│  └──────────┘    └──────────┘    └──────────┘    └──────────┘  │
-│       │              │                │                │        │
-│       │         ┌────┴────┐      ┌────┴────┐     ┌────┴────┐   │
-│       │         │Whisper  │      │ OpenAI  │     │ OpenAI  │   │
-│       │         │  API    │      │   GPT   │     │   TTS   │   │
-│       │         ├─────────┤      ├─────────┤     ├─────────┤   │
-│       │         │Whisper  │      │Anthropic│     │ Sherpa  │   │
-│       │         │ Local   │      │ Claude  │     │  ONNX   │   │
-│       │         └─────────┘      └─────────┘     ├─────────┤   │
-│       │                                          │ElevenLabs│   │
-│       ▼                                          └─────────┘   │
-│  ┌──────────┐                                                   │
-│  │  Voice   │◀──────────────────────────────────────────────── │
-│  │  Player  │           Audio Response                         │
-│  └──────────┘                                                   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Discord Server                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   ┌─────────────┐                         ┌─────────────┐                   │
+│   │ Voice Bot   │                         │ Responder   │                   │
+│   │ (this bot)  │                         │ Bot         │                   │
+│   └──────┬──────┘                         └──────┬──────┘                   │
+│          │                                       │                          │
+│   ┌──────┴──────────────────────────────────────┴──────┐                   │
+│   │                Voice Channel                       │                    │
+│   │                                                    │                    │
+│   │  🎤 User speaks ──────────────────────────────┐    │                   │
+│   │                                               │    │                    │
+│   │                                               ▼    │                    │
+│   │  ┌──────────┐    ┌──────────┐                     │                    │
+│   │  │  Voice   │───▶│   STT    │                     │                    │
+│   │  │ Recorder │    │(Whisper) │                     │                    │
+│   │  └──────────┘    └────┬─────┘                     │                    │
+│   │                       │                            │                    │
+│   └───────────────────────┼────────────────────────────┘                   │
+│                           │                                                 │
+│                           ▼                                                 │
+│   ┌─────────────────────────────────────────────────────────────────┐      │
+│   │                     Text Channel (#voice-chat)                   │      │
+│   │                                                                  │      │
+│   │  [Voice] @User: "What's the weather?"                           │      │
+│   │                                       ──────────────────────┐    │      │
+│   │                                                             │    │      │
+│   │                                                             ▼    │      │
+│   │  @User: "It's sunny and 22°C today!"  ◀──── Responder Bot       │      │
+│   │                                                                  │      │
+│   └────────────────────────────┬────────────────────────────────────┘      │
+│                                │                                            │
+│                                ▼                                            │
+│   ┌────────────────────────────────────────────────────────────────┐       │
+│   │                      Voice Channel                              │       │
+│   │                                                                 │       │
+│   │  ┌──────────┐    ┌──────────┐                                  │       │
+│   │  │   TTS    │───▶│  Voice   │───▶ 🔊 User hears response       │       │
+│   │  │ (OpenAI) │    │  Player  │                                  │       │
+│   │  └──────────┘    └──────────┘                                  │       │
+│   │                                                                 │       │
+│   └─────────────────────────────────────────────────────────────────┘       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Flow
+
+1. **User speaks** in the voice channel
+2. **Voice Bot** records and transcribes the audio using STT
+3. **Voice Bot** posts the transcription to the configured text channel
+4. **Responder Bot** (e.g., OpenClaw) reads the message and replies
+5. **Voice Bot** detects the response and speaks it via TTS
 
 ## 📋 Prerequisites
 
 - **Node.js** 18.0.0 or higher
 - **FFmpeg** installed and available in PATH
-- **Discord Bot** with the following permissions:
-  - Connect
-  - Speak
-  - Use Voice Activity
-  - Read Messages/View Channels
-  - Send Messages
-  - Use Slash Commands
+- **Two Discord Bots**:
+  - **Voice Bot** (this bot) - Handles voice recording and playback
+  - **Responder Bot** - Provides text responses (e.g., OpenClaw)
+
+### Required Permissions
+
+**Voice Bot:**
+- Connect
+- Speak
+- Use Voice Activity
+- Read Messages/View Channels
+- Send Messages
+- Use Slash Commands
+
+**Responder Bot:**
+- Read Messages/View Channels
+- Send Messages
 
 ## 🚀 Quick Start
 
@@ -74,21 +114,38 @@ cd discord-voice-bot
 npm install
 ```
 
-### 3. Configure environment
+### 3. Set up Discord
+
+1. Create a Discord bot at <https://discord.com/developers/applications>
+2. Get the bot token and application ID
+3. Create a text channel for the voice bridge (e.g., `#voice-chat`)
+4. Invite both bots to your server with appropriate permissions
+5. Get the **User ID** (not Application ID) of your responder bot
+
+### 4. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your credentials:
+Edit `.env`:
 
 ```env
-DISCORD_TOKEN=your_bot_token
-DISCORD_CLIENT_ID=your_application_id
-OPENAI_API_KEY=your_openai_key
+DISCORD_TOKEN=your_voice_bot_token
+DISCORD_CLIENT_ID=your_voice_bot_application_id
+
+# Text Bridge
+TEXT_CHANNEL_ID=your_text_channel_id
+RESPONDER_BOT_ID=your_responder_bot_user_id
+
+# STT
+STT_API_KEY=your_openai_key
+
+# TTS
+TTS_API_KEY=your_openai_key
 ```
 
-### 4. Build and run
+### 5. Build and run
 
 ```bash
 npm run build
@@ -110,9 +167,11 @@ npm run dev
 | `DISCORD_TOKEN` | Discord bot token | ✅ | - |
 | `DISCORD_CLIENT_ID` | Discord application ID | ✅ | - |
 | `DISCORD_GUILD_ID` | Guild ID for dev (faster command registration) | ❌ | - |
+| `TEXT_CHANNEL_ID` | Text channel for voice transcriptions | ✅ | - |
+| `RESPONDER_BOT_ID` | User ID of the responder bot | ✅ | - |
+| `RESPONSE_TIMEOUT` | Response timeout in ms | ❌ | `30000` |
 | `BOT_TRIGGERS` | Wake words (comma-separated) | ❌ | `hey bot,ok bot` |
 | `STT_PROVIDER` | Speech-to-text provider | ❌ | `whisper-api` |
-| `LLM_PROVIDER` | LLM provider | ❌ | `openai` |
 | `TTS_PROVIDER` | Text-to-speech provider | ❌ | `openai` |
 
 See `.env.example` for the complete list of options.
@@ -125,13 +184,6 @@ See `.env.example` for the complete list of options.
 |----------|-------------|------------------|
 | `whisper-api` | OpenAI Whisper API | Yes (OpenAI) |
 | `whisper-local` | Self-hosted whisper.cpp | No |
-
-#### Language Models (LLM)
-
-| Provider | Description | Models |
-|----------|-------------|--------|
-| `openai` | OpenAI GPT models | gpt-4, gpt-4-turbo, gpt-3.5-turbo |
-| `anthropic` | Anthropic Claude | claude-3-opus, claude-3-sonnet |
 
 #### Text-to-Speech (TTS)
 
@@ -149,7 +201,7 @@ See `.env.example` for the complete list of options.
 | `/join mode:silent` | Join without confirmation sounds |
 | `/join mode:free` | Join without requiring wake words |
 | `/leave` | Leave the voice channel |
-| `/reset` | Reset your conversation history |
+| `/reset` | Cancel any pending voice request |
 | `/status` | Show bot status and configuration |
 
 ## 📁 Project Structure
@@ -172,10 +224,10 @@ discord-voice-bot/
 │   │   └── player.ts         # Audio playback
 │   ├── providers/            # Pluggable providers
 │   │   ├── stt/              # Speech-to-text
-│   │   ├── llm/              # Language models
 │   │   └── tts/              # Text-to-speech
 │   ├── services/             # Business logic
-│   │   ├── conversation.ts   # Chat history
+│   │   ├── text-bridge.ts    # Discord text channel bridge
+│   │   ├── conversation.ts   # Conversation management
 │   │   └── voice-assistant.ts
 │   └── utils/
 │       ├── logger.ts
@@ -229,13 +281,16 @@ CMD ["npm", "start"]
 ## ❓ FAQ
 
 **Q: Why isn't the bot responding?**
-A: Check that you're using the configured trigger words (default: "hey bot", "ok bot") or use `/join mode:free` for trigger-free mode.
+A: Check that (1) you're using the configured trigger words (default: "hey bot", "ok bot") or use `/join mode:free`, (2) the responder bot is in the same text channel, and (3) `RESPONDER_BOT_ID` is correct.
 
-**Q: Can I use multiple LLM providers at once?**
-A: Currently only one provider is active at a time, configured via `LLM_PROVIDER`.
+**Q: How do I find the responder bot's User ID?**
+A: Enable Developer Mode in Discord Settings → Advanced, then right-click the bot and select "Copy User ID".
+
+**Q: Can I use any bot as the responder?**
+A: Yes! Any bot that reads and responds to messages in the configured text channel will work. The Voice Bot simply waits for messages from the specified `RESPONDER_BOT_ID`.
 
 **Q: How do I reduce latency?**
-A: Use local providers (whisper-local, sherpa-onnx) for STT/TTS, and consider using faster LLM models.
+A: Use local providers (whisper-local, sherpa-onnx) for STT/TTS.
 
 **Q: The bot keeps ignoring my commands?**
 A: Check that `VAD_SILENCE_DURATION` isn't too short, and that your microphone is properly configured.

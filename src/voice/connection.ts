@@ -85,9 +85,7 @@ export class VoiceConnectionManager {
    */
   isConnected(guildId: string): boolean {
     const connection = this.connections.get(guildId);
-    return (
-      connection !== undefined && connection.state.status !== VoiceConnectionStatus.Destroyed
-    );
+    return connection !== undefined && connection.state.status !== VoiceConnectionStatus.Destroyed;
   }
 
   /**

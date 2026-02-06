@@ -15,7 +15,13 @@ const configSchema = z.object({
   bot: z.object({
     triggers: z.array(z.string()).default(['hey bot', 'ok bot']),
     playSounds: z.boolean().default(true),
-    textChatEnabled: z.boolean().default(true),
+  }),
+
+  // Text Bridge (for external bot integration)
+  textBridge: z.object({
+    channelId: z.string().min(1, 'TEXT_CHANNEL_ID is required'),
+    responderBotId: z.string().min(1, 'RESPONDER_BOT_ID is required'),
+    responseTimeout: z.number().int().positive().default(30000),
   }),
 
   // STT
@@ -24,31 +30,6 @@ const configSchema = z.object({
     apiUrl: z.string().url(),
     apiKey: z.string().optional(),
     model: z.string().default('whisper-1'),
-  }),
-
-  // LLM
-  llm: z.object({
-    provider: z.enum(['openai', 'anthropic']).default('openai'),
-    openai: z
-      .object({
-        apiKey: z.string().optional(),
-        model: z.string().default('gpt-4-turbo-preview'),
-        apiUrl: z.string().url().default('https://api.openai.com/v1'),
-      })
-      .optional(),
-    anthropic: z
-      .object({
-        apiKey: z.string().optional(),
-        model: z.string().default('claude-3-opus-20240229'),
-      })
-      .optional(),
-    systemPrompt: z.string().default(
-      'You are a helpful voice assistant. Keep responses concise and conversational. Avoid using markdown formatting as your responses will be spoken aloud.'
-    ),
-    systemPromptFree: z.string().default(
-      'You are a helpful voice assistant in an ongoing conversation. Keep responses concise. Avoid markdown formatting.'
-    ),
-    memorySize: z.number().int().positive().default(20),
   }),
 
   // TTS
@@ -93,32 +74,17 @@ function parseConfig(): Config {
     bot: {
       triggers,
       playSounds: process.env.PLAY_SOUNDS !== 'false',
-      textChatEnabled: process.env.TEXT_CHAT_ENABLED !== 'false',
+    },
+    textBridge: {
+      channelId: process.env.TEXT_CHANNEL_ID ?? '',
+      responderBotId: process.env.RESPONDER_BOT_ID ?? '',
+      responseTimeout: parseInt(process.env.RESPONSE_TIMEOUT ?? '30000', 10),
     },
     stt: {
       provider: process.env.STT_PROVIDER ?? 'whisper-api',
       apiUrl: process.env.STT_API_URL ?? 'https://api.openai.com/v1/audio/transcriptions',
       apiKey: process.env.STT_API_KEY,
       model: process.env.STT_MODEL ?? 'whisper-1',
-    },
-    llm: {
-      provider: process.env.LLM_PROVIDER ?? 'openai',
-      openai: {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: process.env.OPENAI_MODEL ?? 'gpt-4-turbo-preview',
-        apiUrl: process.env.OPENAI_API_URL ?? 'https://api.openai.com/v1',
-      },
-      anthropic: {
-        apiKey: process.env.ANTHROPIC_API_KEY,
-        model: process.env.ANTHROPIC_MODEL ?? 'claude-3-opus-20240229',
-      },
-      systemPrompt:
-        process.env.LLM_SYSTEM_PROMPT ??
-        'You are a helpful voice assistant. Keep responses concise and conversational.',
-      systemPromptFree:
-        process.env.LLM_SYSTEM_PROMPT_FREE ??
-        'You are a helpful voice assistant in an ongoing conversation. Keep responses concise.',
-      memorySize: parseInt(process.env.MEMORY_SIZE ?? '20', 10),
     },
     tts: {
       provider: process.env.TTS_PROVIDER ?? 'openai',

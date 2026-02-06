@@ -1,8 +1,4 @@
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  EmbedBuilder,
-} from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { voiceConnectionManager } from '../voice/index.js';
 import type { VoiceAssistant } from '../services/index.js';
 import { config } from '../config.js';
@@ -40,13 +36,13 @@ export async function execute(
         inline: true,
       },
       {
-        name: '🧠 LLM Provider',
-        value: config.llm.provider,
+        name: '🔈 TTS Provider',
+        value: config.tts.provider,
         inline: true,
       },
       {
-        name: '🔈 TTS Provider',
-        value: config.tts.provider,
+        name: '📝 Text Bridge',
+        value: `Channel: <#${config.textBridge.channelId}>`,
         inline: true,
       },
       {
