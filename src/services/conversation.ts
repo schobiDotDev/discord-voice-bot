@@ -29,11 +29,7 @@ export class ConversationService {
   /**
    * Send a message and wait for a response via the text bridge
    */
-  async chat(
-    userId: string,
-    userMessage: string,
-    durationSeconds: number
-  ): Promise<string> {
+  async chat(userId: string, userMessage: string, durationSeconds: number): Promise<string> {
     const username = this.getUsername(userId);
 
     const metadata: TranscriptionMetadata = {

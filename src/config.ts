@@ -86,8 +86,14 @@ function parseConfig(): Config {
     access: {
       ownerOnly: process.env.OWNER_ONLY === 'true',
       ownerId: process.env.OWNER_ID,
-      allowedUsers: process.env.ALLOWED_USERS?.split(',').map((s) => s.trim()).filter(Boolean) ?? [],
-      blockedUsers: process.env.BLOCKED_USERS?.split(',').map((s) => s.trim()).filter(Boolean) ?? [],
+      allowedUsers:
+        process.env.ALLOWED_USERS?.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean) ?? [],
+      blockedUsers:
+        process.env.BLOCKED_USERS?.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean) ?? [],
     },
     textBridge: {
       channelId: process.env.TEXT_CHANNEL_ID ?? '',
