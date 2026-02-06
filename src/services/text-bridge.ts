@@ -12,6 +12,13 @@ interface PendingRequest {
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
+export interface TranscriptionMetadata {
+  userId: string;
+  username: string;
+  transcription: string;
+  durationSeconds: number;
+}
+
 /**
  * Text Bridge Service
  * Bridges voice transcriptions to a text channel and waits for responses
@@ -57,19 +64,27 @@ export class TextBridgeService extends EventEmitter {
   }
 
   /**
+   * Format a transcription message with user metadata
+   */
+  private formatTranscriptionMessage(metadata: TranscriptionMetadata): string {
+    const { userId, username, transcription, durationSeconds } = metadata;
+    const duration = durationSeconds.toFixed(1);
+
+    return `🎤 **${username}** (ID: ${userId}) | Dauer: ${duration}s\n> ${transcription}`;
+  }
+
+  /**
    * Post a voice transcription and wait for a response
    */
-  async postAndWaitForResponse(
-    userId: string,
-    username: string,
-    transcription: string
-  ): Promise<string> {
+  async postAndWaitForResponse(metadata: TranscriptionMetadata): Promise<string> {
     if (!this.textChannel) {
       throw new Error('Text bridge not initialized');
     }
 
-    // Format the message
-    const formattedMessage = `[Voice] <@${userId}>: ${transcription}`;
+    const { userId, username } = metadata;
+
+    // Format the message with metadata
+    const formattedMessage = this.formatTranscriptionMessage(metadata);
 
     // Post the transcription to the text channel
     const message = await this.textChannel.send(formattedMessage);
@@ -78,7 +93,8 @@ export class TextBridgeService extends EventEmitter {
       userId,
       username,
       messageId: message.id,
-      transcription: transcription.substring(0, 100),
+      duration: metadata.durationSeconds,
+      transcription: metadata.transcription.substring(0, 100),
     });
 
     // Create a promise that resolves when we get a response

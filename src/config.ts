@@ -17,6 +17,14 @@ const configSchema = z.object({
     playSounds: z.boolean().default(true),
   }),
 
+  // User access control
+  access: z.object({
+    ownerOnly: z.boolean().default(false),
+    ownerId: z.string().optional(),
+    allowedUsers: z.array(z.string()).default([]),
+    blockedUsers: z.array(z.string()).default([]),
+  }),
+
   // Text Bridge (for external bot integration)
   textBridge: z.object({
     channelId: z.string().min(1, 'TEXT_CHANNEL_ID is required'),
@@ -75,6 +83,12 @@ function parseConfig(): Config {
       triggers,
       playSounds: process.env.PLAY_SOUNDS !== 'false',
     },
+    access: {
+      ownerOnly: process.env.OWNER_ONLY === 'true',
+      ownerId: process.env.OWNER_ID,
+      allowedUsers: process.env.ALLOWED_USERS?.split(',').map((s) => s.trim()).filter(Boolean) ?? [],
+      blockedUsers: process.env.BLOCKED_USERS?.split(',').map((s) => s.trim()).filter(Boolean) ?? [],
+    },
     textBridge: {
       channelId: process.env.TEXT_CHANNEL_ID ?? '',
       responderBotId: process.env.RESPONDER_BOT_ID ?? '',
@@ -108,3 +122,29 @@ function parseConfig(): Config {
 }
 
 export const config = parseConfig();
+
+/**
+ * Check if a user is allowed to use the voice bot
+ */
+export function isUserAllowed(userId: string, guildOwnerId?: string): boolean {
+  const { ownerId, ownerOnly, allowedUsers, blockedUsers } = config.access;
+
+  // Check blocklist first
+  if (blockedUsers.includes(userId)) {
+    return false;
+  }
+
+  // Owner-only mode
+  if (ownerOnly) {
+    const effectiveOwnerId = ownerId ?? guildOwnerId;
+    return effectiveOwnerId === userId;
+  }
+
+  // If allowlist is set, user must be on it
+  if (allowedUsers.length > 0) {
+    return allowedUsers.includes(userId);
+  }
+
+  // Default: allow all (not blocked)
+  return true;
+}

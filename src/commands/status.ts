@@ -16,6 +16,16 @@ export async function execute(
   const mode = voiceAssistant.getMode(guildId);
   const isProcessing = voiceAssistant.isProcessing(guildId);
 
+  // Format access control info
+  let accessInfo = 'Everyone';
+  if (config.access.ownerOnly) {
+    accessInfo = '🔒 Owner Only';
+  } else if (config.access.allowedUsers.length > 0) {
+    accessInfo = `Allowlist (${config.access.allowedUsers.length} users)`;
+  } else if (config.access.blockedUsers.length > 0) {
+    accessInfo = `Blocklist (${config.access.blockedUsers.length} users)`;
+  }
+
   const embed = new EmbedBuilder()
     .setTitle('🤖 Voice Bot Status')
     .setColor(isConnected ? 0x00ff00 : 0xff0000)
@@ -31,6 +41,11 @@ export async function execute(
         inline: true,
       },
       {
+        name: '👥 Access',
+        value: accessInfo,
+        inline: true,
+      },
+      {
         name: '🎤 STT Provider',
         value: config.stt.provider,
         inline: true,
@@ -42,7 +57,7 @@ export async function execute(
       },
       {
         name: '📝 Text Bridge',
-        value: `Channel: <#${config.textBridge.channelId}>`,
+        value: `<#${config.textBridge.channelId}>`,
         inline: true,
       },
       {

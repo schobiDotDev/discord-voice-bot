@@ -1,6 +1,6 @@
 import { VoiceConnection } from '@discordjs/voice';
 import type { VoiceBasedChannel, GuildMember } from 'discord.js';
-import { config } from '../config.js';
+import { config, isUserAllowed } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { cleanupAudioFiles } from '../utils/audio.js';
 import { voiceRecorder, voicePlayer } from '../voice/index.js';
@@ -16,6 +16,7 @@ interface GuildState {
   channel: VoiceBasedChannel;
   mode: VoiceMode;
   isProcessing: boolean;
+  guildOwnerId: string;
 }
 
 /**
@@ -55,18 +56,20 @@ export class VoiceAssistant {
    */
   start(connection: VoiceConnection, channel: VoiceBasedChannel, mode: VoiceMode = 'normal'): void {
     const guildId = channel.guild.id;
+    const guildOwnerId = channel.guild.ownerId;
 
     this.guildStates.set(guildId, {
       connection,
       channel,
       mode,
       isProcessing: false,
+      guildOwnerId,
     });
 
     voicePlayer.setConnection(connection);
 
-    // Start recording for all members in the channel
-    const memberIds = this.getChannelMemberIds(channel);
+    // Start recording for all allowed members in the channel
+    const memberIds = this.getChannelMemberIds(channel, guildOwnerId);
     voiceRecorder.startRecordingAll(connection, memberIds);
 
     // Store usernames for members
@@ -104,6 +107,12 @@ export class VoiceAssistant {
   handleUserJoin(guildId: string, userId: string, member?: GuildMember): void {
     const state = this.guildStates.get(guildId);
     if (!state) return;
+
+    // Check if user is allowed
+    if (!isUserAllowed(userId, state.guildOwnerId)) {
+      logger.debug(`User ${userId} not allowed, skipping recording`);
+      return;
+    }
 
     logger.info(`User joined voice channel`, { guildId, userId });
     voiceRecorder.startRecording(state.connection, userId);
@@ -175,6 +184,13 @@ export class VoiceAssistant {
       return;
     }
 
+    // Check if user is allowed (double-check in case config changed)
+    if (!isUserAllowed(userId, guildState.guildOwnerId)) {
+      logger.debug(`User ${userId} not allowed, ignoring recording`);
+      await cleanupAudioFiles(userId);
+      return;
+    }
+
     // Skip if already processing
     if (guildState.isProcessing) {
       logger.debug(`Already processing, restarting recording`, { userId });
@@ -187,7 +203,10 @@ export class VoiceAssistant {
       // Transcribe audio
       const transcription = await this.sttProvider.transcribe(mp3Path);
 
-      logger.info(`Transcription: "${transcription}"`, { userId, duration });
+      // Convert duration from milliseconds to seconds
+      const durationSeconds = duration / 1000;
+
+      logger.info(`Transcription: "${transcription}"`, { userId, durationSeconds });
 
       // Clean up audio files
       await cleanupAudioFiles(userId);
@@ -225,8 +244,8 @@ export class VoiceAssistant {
       // Play confirmation sound
       await this.playConfirmation(guildState);
 
-      // Post to text channel and wait for response
-      const response = await this.conversationService.chat(userId, cleanedText);
+      // Post to text channel and wait for response (with duration metadata)
+      const response = await this.conversationService.chat(userId, cleanedText, durationSeconds);
 
       if (!response) {
         guildState.isProcessing = false;
@@ -296,9 +315,9 @@ export class VoiceAssistant {
     }
   }
 
-  private getChannelMemberIds(channel: VoiceBasedChannel): string[] {
+  private getChannelMemberIds(channel: VoiceBasedChannel, guildOwnerId: string): string[] {
     return Array.from(channel.members.values())
-      .filter((member) => !member.user.bot)
+      .filter((member) => !member.user.bot && isUserAllowed(member.id, guildOwnerId))
       .map((member) => member.id);
   }
 }

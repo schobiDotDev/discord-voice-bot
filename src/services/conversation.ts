@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger.js';
-import type { TextBridgeService } from './text-bridge.js';
+import type { TextBridgeService, TranscriptionMetadata } from './text-bridge.js';
 
 /**
  * Manages voice conversations by bridging to the text channel
@@ -29,11 +29,22 @@ export class ConversationService {
   /**
    * Send a message and wait for a response via the text bridge
    */
-  async chat(userId: string, userMessage: string): Promise<string> {
+  async chat(
+    userId: string,
+    userMessage: string,
+    durationSeconds: number
+  ): Promise<string> {
     const username = this.getUsername(userId);
 
+    const metadata: TranscriptionMetadata = {
+      userId,
+      username,
+      transcription: userMessage,
+      durationSeconds,
+    };
+
     try {
-      const response = await this.textBridge.postAndWaitForResponse(userId, username, userMessage);
+      const response = await this.textBridge.postAndWaitForResponse(metadata);
 
       logger.info(`Response for user ${username}: "${response.substring(0, 100)}..."`);
       return response;
