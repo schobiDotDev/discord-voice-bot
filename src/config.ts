@@ -49,6 +49,14 @@ const configSchema = z.object({
     voice: z.string().default('nova'),
   }),
 
+  // Wake Word Detection
+  wakeWord: z.object({
+    provider: z.enum(['none', 'openwakeword']).default('none'),
+    modelPath: z.string().default('./models/openwakeword'),
+    keywords: z.array(z.string()).default(['hey_jarvis']),
+    sensitivity: z.number().min(0).max(1).default(0.5),
+  }),
+
   // VAD
   vad: z.object({
     silenceDuration: z.number().int().positive().default(1500),
@@ -105,6 +113,15 @@ function parseConfig(): Config {
       apiUrl: process.env.STT_API_URL ?? 'https://api.openai.com/v1/audio/transcriptions',
       apiKey: process.env.STT_API_KEY,
       model: process.env.STT_MODEL ?? 'whisper-1',
+    },
+    wakeWord: {
+      provider: process.env.WAKEWORD_PROVIDER ?? 'none',
+      modelPath: process.env.WAKEWORD_MODEL_PATH ?? './models/openwakeword',
+      keywords:
+        process.env.WAKEWORD_KEYWORDS?.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean) ?? ['hey_jarvis'],
+      sensitivity: parseFloat(process.env.WAKEWORD_SENSITIVITY ?? '0.5'),
     },
     tts: {
       provider: process.env.TTS_PROVIDER ?? 'openai',
