@@ -314,6 +314,58 @@ Place MP3 files in the `sounds/` directory:
 - `understood.mp3` - Played when trigger word detected
 - `result.mp3` - Played before speaking response
 
+## 🔌 OpenClaw Integration
+
+This bot can be used as an OpenClaw channel plugin, allowing OpenClaw to "hear" and "speak" in Discord calls via browser automation or standard bot API.
+
+### Installation
+
+1. Link the extension to your OpenClaw extensions directory:
+
+```bash
+mkdir -p ~/.openclaw/extensions/discord-voice
+cp -r openclaw-extension/* ~/.openclaw/extensions/discord-voice/
+```
+
+2. Enable the plugin in your `openclaw.json` (or via `openclaw gateway config`):
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "discord-voice": {
+        "enabled": true,
+        "config": {
+          "voiceBotUrl": "http://localhost:8788",
+          "ownerId": "YOUR_DISCORD_USER_ID"
+        }
+      }
+    }
+  },
+  "hooks": {
+    "enabled": true,
+    "token": "your-webhook-token"
+  }
+}
+```
+
+3. Restart OpenClaw Gateway.
+
+### Browser Mode (DM Calls)
+
+To use Discord DM calls (which require browser automation instead of the bot API), run the bot in browser mode:
+
+1. Configure BlackHole audio devices (see `.env.example`).
+2. Start the bot:
+
+```bash
+MODE=browser npm start
+```
+
+3. Open Discord Web in the OpenClaw browser (`openclaw browser open ...`).
+4. Start a call.
+5. Trigger the listening loop via API: `POST http://localhost:8788/call/start`.
+
 ## 🛠️ Development
 
 ```bash
