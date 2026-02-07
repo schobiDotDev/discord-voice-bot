@@ -40,5 +40,8 @@ Thumbs.db
 *.tsbuildinfo
 coverage/
 
+# Browser mode profile (persistent session data)
+browser-profile/
+
 # Private files
 CLAUDE.md
