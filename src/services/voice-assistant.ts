@@ -1,5 +1,6 @@
 import { VoiceConnection } from '@discordjs/voice';
 import type { VoiceBasedChannel, GuildMember } from 'discord.js';
+import { promises as fs } from 'node:fs';
 import { config, isUserAllowed } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { cleanupAudioFiles } from '../utils/audio.js';
@@ -7,6 +8,7 @@ import { voiceRecorder, voicePlayer } from '../voice/index.js';
 import type { RecordingResult } from '../voice/index.js';
 import type { STTProvider } from '../providers/stt/index.js';
 import type { TTSProvider } from '../providers/tts/index.js';
+import type { WakeWordProvider } from '../providers/wakeword/index.js';
 import { ConversationService } from './conversation.js';
 
 export type VoiceMode = 'normal' | 'silent' | 'free';
@@ -21,11 +23,20 @@ interface GuildState {
 
 /**
  * Voice Assistant orchestrates the full voice interaction flow:
- * Recording -> STT -> Text Bridge -> TTS -> Playback
+ * Recording -> Wake Word Detection -> STT -> Text Bridge -> TTS -> Playback
+ *
+ * When wake word detection is enabled:
+ * - normal/silent modes: PCM audio is first checked for wake word locally,
+ *   only if detected the audio is sent to Whisper for full transcription.
+ * - free mode: skips wake word detection, transcribes everything.
+ *
+ * When wake word detection is disabled:
+ * - Falls back to trigger word matching in the transcription text (original behavior).
  */
 export class VoiceAssistant {
   private sttProvider: STTProvider;
   private ttsProvider: TTSProvider;
+  private wakeWordProvider: WakeWordProvider | null;
   private conversationService: ConversationService;
   private guildStates: Map<string, GuildState> = new Map();
   private ignorePhrases = ['Thank you.', 'Bye.', 'Thanks for watching.'];
@@ -33,10 +44,12 @@ export class VoiceAssistant {
   constructor(
     sttProvider: STTProvider,
     ttsProvider: TTSProvider,
-    conversationService: ConversationService
+    conversationService: ConversationService,
+    wakeWordProvider: WakeWordProvider | null = null
   ) {
     this.sttProvider = sttProvider;
     this.ttsProvider = ttsProvider;
+    this.wakeWordProvider = wakeWordProvider;
     this.conversationService = conversationService;
 
     // Set up TTS provider for voice player
@@ -79,11 +92,14 @@ export class VoiceAssistant {
       }
     }
 
+    const wakeWordStatus = this.wakeWordProvider ? `enabled (${this.wakeWordProvider.name})` : 'disabled (trigger word fallback)';
+
     logger.info(`Voice assistant started in ${channel.name}`, {
       guildId,
       mode,
       memberCount: memberIds.length,
     });
+    logger.info(`Wake word detection: ${wakeWordStatus}`);
   }
 
   /**
@@ -163,7 +179,7 @@ export class VoiceAssistant {
   }
 
   private async handleRecording(result: RecordingResult): Promise<void> {
-    const { userId, mp3Path, duration } = result;
+    const { userId, mp3Path, pcmPath, duration } = result;
 
     // Find the guild state for this user
     let guildState: GuildState | undefined;
@@ -200,10 +216,25 @@ export class VoiceAssistant {
     }
 
     try {
-      // Transcribe audio
-      const transcription = await this.sttProvider.transcribe(mp3Path);
+      const freeMode = guildState.mode === 'free';
+      const useWakeWord = this.wakeWordProvider !== null && !freeMode;
 
-      // Convert duration from milliseconds to seconds
+      // ── Wake Word Detection (local, before STT) ──
+      if (useWakeWord) {
+        const wakeWordDetected = await this.checkWakeWord(pcmPath, userId);
+
+        if (!wakeWordDetected) {
+          logger.debug(`No wake word detected, skipping transcription`, { userId });
+          await cleanupAudioFiles(userId);
+          voiceRecorder.restartRecording(guildState.connection, userId);
+          return;
+        }
+
+        logger.info(`Wake word detected! Proceeding to transcription`, { userId });
+      }
+
+      // ── STT Transcription ──
+      const transcription = await this.sttProvider.transcribe(mp3Path);
       const durationSeconds = duration / 1000;
 
       logger.info(`Transcription: "${transcription}"`, { userId, durationSeconds });
@@ -228,14 +259,29 @@ export class VoiceAssistant {
         }
       }
 
-      // Check for trigger word (unless in free mode)
-      const freeMode = guildState.mode === 'free';
-      const { triggered, cleanedText } = this.checkTrigger(transcription, freeMode);
+      // ── Trigger word handling ──
+      let cleanedText: string;
 
-      if (!triggered) {
-        logger.debug(`No trigger word detected`, { userId });
-        voiceRecorder.restartRecording(guildState.connection, userId);
-        return;
+      if (useWakeWord) {
+        // Wake word already confirmed detection — use full transcription
+        // Still strip trigger words from text if they appear (the wake word
+        // keyword name might differ from the trigger word in the transcription)
+        const stripped = this.stripTriggerWords(transcription);
+        cleanedText = stripped || transcription;
+      } else {
+        // No wake word provider — fall back to trigger word matching in text
+        const { triggered, cleanedText: triggerCleaned } = this.checkTrigger(
+          transcription,
+          freeMode
+        );
+
+        if (!triggered) {
+          logger.debug(`No trigger word detected`, { userId });
+          voiceRecorder.restartRecording(guildState.connection, userId);
+          return;
+        }
+
+        cleanedText = triggerCleaned;
       }
 
       // Mark as processing
@@ -271,6 +317,35 @@ export class VoiceAssistant {
     }
   }
 
+  /**
+   * Run local wake word detection on PCM audio file
+   */
+  private async checkWakeWord(pcmPath: string, userId: string): Promise<boolean> {
+    if (!this.wakeWordProvider) return false;
+
+    try {
+      const pcmData = await fs.readFile(pcmPath);
+
+      if (pcmData.length === 0) {
+        logger.debug(`Empty PCM file, skipping wake word check`, { userId });
+        return false;
+      }
+
+      const result = await this.wakeWordProvider.detect(pcmData, config.audio.sampleRate);
+
+      logger.debug(`Wake word result: detected=${result.detected}, confidence=${result.confidence.toFixed(3)}`, {
+        userId,
+      });
+
+      return result.detected;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`Wake word detection error: ${message}`, { userId });
+      // On error, fall through to STT (don't silently drop audio)
+      return true;
+    }
+  }
+
   private shouldIgnore(text: string): boolean {
     const normalized = text.trim().toLowerCase();
 
@@ -287,6 +362,9 @@ export class VoiceAssistant {
     return stopPhrases.some((phrase) => normalized.includes(phrase));
   }
 
+  /**
+   * Check for trigger word in transcription text (legacy/fallback behavior)
+   */
   private checkTrigger(
     text: string,
     freeMode: boolean
@@ -307,6 +385,19 @@ export class VoiceAssistant {
     }
 
     return { triggered: false, cleanedText: text };
+  }
+
+  /**
+   * Strip trigger words from transcription text.
+   * Used after wake word detection to clean up the text before sending to LLM.
+   */
+  private stripTriggerWords(text: string): string {
+    let cleaned = text;
+    for (const trigger of config.bot.triggers) {
+      const regex = new RegExp(`\\b${trigger}\\b`, 'gi');
+      cleaned = cleaned.replace(regex, '');
+    }
+    return cleaned.replace(/\s+/g, ' ').trim();
   }
 
   private async playConfirmation(state: GuildState): Promise<void> {

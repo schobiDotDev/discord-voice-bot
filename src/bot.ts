@@ -5,6 +5,7 @@ import { ensureDirectories, cleanupAllRecordings } from './utils/audio.js';
 import { voiceConnectionManager } from './voice/index.js';
 import { createSTTProvider } from './providers/stt/index.js';
 import { createTTSProvider } from './providers/tts/index.js';
+import { createWakeWordProvider } from './providers/wakeword/index.js';
 import { TextBridgeService, ConversationService, VoiceAssistant } from './services/index.js';
 import { registerCommands, handleCommand, type CommandContext } from './commands/index.js';
 
@@ -17,6 +18,7 @@ export class Bot {
   private textBridge: TextBridgeService;
   private voiceAssistant: VoiceAssistant;
   private conversationService: ConversationService;
+  private wakeWordProvider: ReturnType<typeof createWakeWordProvider>;
 
   constructor() {
     this.client = new Client({
@@ -31,13 +33,19 @@ export class Bot {
     // Initialize providers
     const sttProvider = createSTTProvider();
     const ttsProvider = createTTSProvider();
+    this.wakeWordProvider = createWakeWordProvider();
 
     // Initialize text bridge (needs client for Discord message handling)
     this.textBridge = new TextBridgeService(this.client);
 
     // Initialize services
     this.conversationService = new ConversationService(this.textBridge);
-    this.voiceAssistant = new VoiceAssistant(sttProvider, ttsProvider, this.conversationService);
+    this.voiceAssistant = new VoiceAssistant(
+      sttProvider,
+      ttsProvider,
+      this.conversationService,
+      this.wakeWordProvider
+    );
 
     this.setupEventHandlers();
   }
@@ -51,6 +59,11 @@ export class Bot {
 
     // Clean up old recordings
     await cleanupAllRecordings();
+
+    // Initialize wake word provider (loads ONNX models)
+    if (this.wakeWordProvider) {
+      await this.wakeWordProvider.initialize();
+    }
 
     // Register slash commands
     await registerCommands();
@@ -71,6 +84,11 @@ export class Bot {
 
     // Destroy all voice connections
     voiceConnectionManager.destroyAll();
+
+    // Dispose wake word provider
+    if (this.wakeWordProvider) {
+      await this.wakeWordProvider.dispose();
+    }
 
     // Destroy client
     this.client.destroy();
