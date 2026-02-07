@@ -123,9 +123,10 @@ export class AudioDeviceManager {
 
     try {
       // ffmpeg -f avfoundation -list_devices true -i "" outputs to stderr
-      const { stderr } = await execAsync('ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true');
+      // Redirect stderr to stdout so we can capture it
+      const { stdout } = await execAsync('ffmpeg -f avfoundation -list_devices true -i "" 2>&1; true');
 
-      const lines = stderr.split('\n');
+      const lines = stdout.split('\n');
       let currentType: 'video' | 'audio' | null = null;
 
       for (const line of lines) {
