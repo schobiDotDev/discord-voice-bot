@@ -88,6 +88,15 @@ export async function cleanupAudioFiles(userId: string): Promise<void> {
   const mp3Path = getMp3Path(userId);
 
   try {
+    // Save MP3 to training samples if SAVE_TRAINING_SAMPLES env is set
+    if (process.env.SAVE_TRAINING_SAMPLES === 'true') {
+      const trainDir = path.join(RECORDINGS_DIR, 'training-samples');
+      await fs.mkdir(trainDir, { recursive: true });
+      const timestamp = Date.now();
+      const destPath = path.join(trainDir, `${userId}_${timestamp}.mp3`);
+      await fs.copyFile(mp3Path, destPath).catch(() => {});
+      logger.info(`Saved training sample: ${destPath}`);
+    }
     await fs.unlink(pcmPath).catch(() => {});
     await fs.unlink(mp3Path).catch(() => {});
     logger.debug(`Cleaned up audio files for user ${userId}`);

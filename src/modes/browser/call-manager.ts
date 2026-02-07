@@ -1,60 +1,71 @@
-import { writeFileSync, unlinkSync, mkdtempSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 import { logger } from './logger.js';
-import type { DiscordWeb } from './discord-web.js';
-import type { AudioBridge } from './audio-bridge.js';
+import { ConversationLoop, type ConversationConfig, type ConversationState } from './conversation.js';
 import type { STTProvider } from '../../providers/stt/interface.js';
-import { SAMPLE_RATE } from './audio-bridge.js';
+import type { TTSProvider } from '../../providers/tts/interface.js';
 
 export interface CallManagerConfig {
-  targetUserId: string;
-  responseCallback?: (transcription: string) => Promise<string>;
+  inputDeviceIndex: number;
+  outputDevice: string;
+  systemDevice: string;
+  sampleRate?: number;
+  channels?: number;
+  chunkSeconds?: number;
+  volumeThresholdDb?: number;
+  silenceDurationMs?: number;
+  minSpeechDurationMs?: number;
+  language?: string;
 }
 
-export type CallState = 'idle' | 'calling' | 'ringing' | 'connected' | 'hanging-up';
+export type CallState = 'idle' | 'connected' | 'listening' | 'processing' | 'speaking';
 
 /**
- * Orchestrates the full voice call flow:
- * 1. Start or answer a call
- * 2. Capture tab audio → STT transcription
- * 3. Send transcription to response handler (e.g., OpenClaw API)
- * 4. Generate TTS response → play to BlackHole → Discord
- * 5. Handle hang up
+ * Manages voice call state and conversation
+ * Simplified version that only handles audio (no browser automation)
+ * Browser/Discord is managed externally
  */
 export class CallManager extends EventEmitter {
-  private discordWeb: DiscordWeb;
-  private audioBridge: AudioBridge;
-  private sttProvider: STTProvider;
-  private config: CallManagerConfig;
-
+  private conversation: ConversationLoop;
   private state: CallState = 'idle';
-  private audioChunks: Buffer[] = [];
-  private silenceStartTime: number | null = null;
-  private processing = false;
-  private tmpDir: string;
-
-  // VAD settings
-  private readonly SILENCE_THRESHOLD_MS = 1500;
-  private readonly MIN_AUDIO_DURATION_MS = 500;
+  private responseCallback?: (transcription: string) => Promise<string>;
 
   constructor(
-    discordWeb: DiscordWeb,
-    audioBridge: AudioBridge,
     sttProvider: STTProvider,
+    ttsProvider: TTSProvider,
     config: CallManagerConfig
   ) {
     super();
-    this.discordWeb = discordWeb;
-    this.audioBridge = audioBridge;
-    this.sttProvider = sttProvider;
-    this.config = config;
-    this.tmpDir = mkdtempSync(join(tmpdir(), 'call-manager-'));
 
-    // Handle audio chunks from the bridge
-    this.audioBridge.on('audio', (pcmBuffer: Buffer) => {
-      this.handleAudioChunk(pcmBuffer);
+    const conversationConfig: ConversationConfig = {
+      inputDeviceIndex: config.inputDeviceIndex,
+      outputDevice: config.outputDevice,
+      systemDevice: config.systemDevice,
+      sampleRate: config.sampleRate ?? 16000,
+      channels: config.channels ?? 1,
+      chunkSeconds: config.chunkSeconds ?? 3,
+      volumeThresholdDb: config.volumeThresholdDb ?? -50,
+      silenceDurationMs: config.silenceDurationMs ?? 1500,
+      minSpeechDurationMs: config.minSpeechDurationMs ?? 500,
+      language: config.language ?? 'de',
+    };
+
+    this.conversation = new ConversationLoop(
+      conversationConfig,
+      sttProvider,
+      ttsProvider,
+      {
+        onTranscription: (text) => this.emit('transcription', text),
+        onResponse: (text) => this.emit('response', text),
+      }
+    );
+
+    // Forward conversation events
+    this.conversation.on('stateChange', (convState: ConversationState) => {
+      this.updateStateFromConversation(convState);
+    });
+
+    this.conversation.on('error', (error: Error) => {
+      this.emit('error', error);
     });
   }
 
@@ -69,139 +80,91 @@ export class CallManager extends EventEmitter {
    * Set the response callback (called with transcription, returns response text)
    */
   setResponseCallback(callback: (transcription: string) => Promise<string>): void {
-    this.config.responseCallback = callback;
+    this.responseCallback = callback;
+    this.conversation.setResponseCallback(callback);
   }
 
   /**
-   * Start an outgoing call to the target user
+   * Start listening for voice input
+   * Call this when Discord call is connected (managed externally)
    */
-  async startCall(userId?: string): Promise<boolean> {
-    const targetId = userId ?? this.config.targetUserId;
-
+  async startCall(_userId?: string): Promise<boolean> {
     if (this.state !== 'idle') {
-      logger.warn(`Cannot start call — current state: ${this.state}`);
+      logger.warn(`Cannot start — current state: ${this.state}`);
       return false;
     }
 
-    this.setState('calling');
+    logger.info('Starting voice session...');
+    this.setState('connected');
 
-    try {
-      // Navigate to the user's DM
-      const dmOk = await this.discordWeb.navigateToDM(targetId);
-      if (!dmOk) {
-        this.setState('idle');
-        return false;
-      }
-
-      // Start the voice call
-      const callOk = await this.discordWeb.startCall();
-      if (!callOk) {
-        this.setState('idle');
-        return false;
-      }
-
-      this.setState('connected');
-
-      // Start capturing audio
-      await this.audioBridge.startCapture();
-
-      logger.info('Call started and audio capture active');
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to start call: ${message}`);
-      this.setState('idle');
-      this.emitError(error);
-      return false;
+    if (this.responseCallback) {
+      this.conversation.setResponseCallback(this.responseCallback);
     }
+
+    await this.conversation.start();
+    logger.info('Voice session active');
+    return true;
   }
 
   /**
-   * Answer an incoming call
+   * Answer an incoming call (same as start for this implementation)
    */
   async answerCall(): Promise<boolean> {
-    if (this.state !== 'idle' && this.state !== 'ringing') {
-      logger.warn(`Cannot answer call — current state: ${this.state}`);
-      return false;
-    }
-
-    this.setState('ringing');
-
-    try {
-      const answered = await this.discordWeb.answerCall();
-      if (!answered) {
-        this.setState('idle');
-        return false;
-      }
-
-      this.setState('connected');
-
-      // Start capturing audio
-      await this.audioBridge.startCapture();
-
-      logger.info('Call answered and audio capture active');
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to answer call: ${message}`);
-      this.setState('idle');
-      this.emitError(error);
-      return false;
-    }
+    return this.startCall();
   }
 
   /**
-   * Hang up the current call
+   * Stop listening and end the session
    */
   async hangUp(): Promise<void> {
     if (this.state === 'idle') return;
 
-    this.setState('hanging-up');
-
-    // Stop audio capture
-    await this.audioBridge.stopCapture();
-    this.audioBridge.stopPlayback();
-
-    // End the call in Discord
-    await this.discordWeb.hangUp();
-
-    // Clear any buffered audio
-    this.audioChunks = [];
-    this.silenceStartTime = null;
-    this.processing = false;
-
+    logger.info('Ending voice session...');
+    await this.conversation.stop();
     this.setState('idle');
-    logger.info('Call ended');
+    logger.info('Voice session ended');
   }
 
   /**
-   * Speak text in the current call (TTS → BlackHole → Discord)
+   * Speak text via TTS
    */
   async speak(text: string): Promise<void> {
-    if (this.state !== 'connected') {
-      logger.warn('Cannot speak — not in a call');
+    if (this.state === 'idle') {
+      logger.warn('Cannot speak — session not active');
       return;
     }
 
-    await this.audioBridge.speak(text);
-    this.emit('response', text);
+    await this.conversation.speak(text);
+  }
+
+  /**
+   * Listen for a single utterance and return transcription
+   * Useful for one-shot commands
+   */
+  async listenOnce(): Promise<string | null> {
+    if (this.state === 'idle') {
+      logger.warn('Cannot listen — session not active');
+      return null;
+    }
+
+    return this.conversation.listenOnce();
   }
 
   /**
    * Start watching for incoming calls
+   * No-op in this implementation (browser-managed externally)
    */
   startIncomingCallWatch(): void {
-    this.discordWeb.onIncomingCall(async () => {
-      logger.info('Incoming call detected, auto-answering...');
-      await this.answerCall();
-    });
+    // No-op: incoming calls are handled by the external browser/Discord
+    logger.debug('Incoming call watch not needed (browser-managed externally)');
   }
 
   /**
    * Stop watching for incoming calls
+   * No-op in this implementation
    */
   stopIncomingCallWatch(): void {
-    this.discordWeb.stopIncomingCallWatch();
+    // No-op
   }
 
   /**
@@ -209,119 +172,27 @@ export class CallManager extends EventEmitter {
    */
   async dispose(): Promise<void> {
     await this.hangUp();
-    this.stopIncomingCallWatch();
-    await this.audioBridge.dispose();
   }
 
-  /**
-   * Handle incoming audio chunks from the capture bridge
-   */
-  private handleAudioChunk(pcmBuffer: Buffer): void {
-    if (this.state !== 'connected' || this.processing) return;
-
-    this.audioChunks.push(pcmBuffer);
-    this.silenceStartTime = null; // Reset silence timer — we got audio
-
-    // Start a silence detection timer
-    if (!this.silenceStartTime) {
-      setTimeout(() => {
-        void this.checkSilenceAndProcess();
-      }, this.SILENCE_THRESHOLD_MS);
-    }
-  }
-
-  /**
-   * Check if enough silence has passed and process accumulated audio
-   */
-  private async checkSilenceAndProcess(): Promise<void> {
-    if (this.processing || this.audioChunks.length === 0) return;
-
-    // Calculate total audio duration
-    const totalSamples = this.audioChunks.reduce((sum, buf) => sum + buf.length / 2, 0);
-    const durationMs = (totalSamples / SAMPLE_RATE) * 1000;
-
-    if (durationMs < this.MIN_AUDIO_DURATION_MS) {
-      this.audioChunks = [];
-      return;
-    }
-
-    this.processing = true;
-
-    try {
-      // Concatenate all audio chunks
-      const combined = Buffer.concat(this.audioChunks);
-      this.audioChunks = [];
-
-      // Write PCM to a temp WAV file for STT
-      const wavPath = join(this.tmpDir, `capture-${Date.now()}.wav`);
-      this.writeWav(wavPath, combined);
-
-      // Transcribe
-      const transcription = await this.sttProvider.transcribe(wavPath);
-
-      // Clean up
-      try {
-        unlinkSync(wavPath);
-      } catch {
-        // Ignore
-      }
-
-      if (!transcription || transcription.trim().length === 0) {
-        this.processing = false;
-        return;
-      }
-
-      logger.info(`Transcription: "${transcription}"`);
-      this.emit('transcription', transcription);
-
-      // Send to response callback if available
-      if (this.config.responseCallback) {
-        try {
-          const response = await this.config.responseCallback(transcription);
-          if (response) {
-            await this.speak(response);
-          }
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          logger.error(`Response callback failed: ${msg}`);
+  private updateStateFromConversation(convState: ConversationState): void {
+    // Map conversation state to call state
+    switch (convState) {
+      case 'idle':
+        // Only set to idle if we're not in a call
+        if (this.state !== 'idle' && !this.conversation.isRunning()) {
+          this.setState('idle');
         }
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logger.error(`Audio processing failed: ${msg}`);
-      this.emitError(error);
-    } finally {
-      this.processing = false;
+        break;
+      case 'listening':
+        this.setState('listening');
+        break;
+      case 'processing':
+        this.setState('processing');
+        break;
+      case 'speaking':
+        this.setState('speaking');
+        break;
     }
-  }
-
-  /**
-   * Write raw PCM Int16 data as a WAV file
-   */
-  private writeWav(path: string, pcmData: Buffer): void {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = (SAMPLE_RATE * numChannels * bitsPerSample) / 8;
-    const blockAlign = (numChannels * bitsPerSample) / 8;
-    const dataSize = pcmData.length;
-    const headerSize = 44;
-
-    const header = Buffer.alloc(headerSize);
-    header.write('RIFF', 0);
-    header.writeUInt32LE(dataSize + headerSize - 8, 4);
-    header.write('WAVE', 8);
-    header.write('fmt ', 12);
-    header.writeUInt32LE(16, 16); // fmt chunk size
-    header.writeUInt16LE(1, 20); // PCM format
-    header.writeUInt16LE(numChannels, 22);
-    header.writeUInt32LE(SAMPLE_RATE, 24);
-    header.writeUInt32LE(byteRate, 28);
-    header.writeUInt16LE(blockAlign, 32);
-    header.writeUInt16LE(bitsPerSample, 34);
-    header.write('data', 36);
-    header.writeUInt32LE(dataSize, 40);
-
-    writeFileSync(path, Buffer.concat([header, pcmData]));
   }
 
   private setState(state: CallState): void {
@@ -331,10 +202,5 @@ export class CallManager extends EventEmitter {
       logger.info(`Call state: ${prev} → ${state}`);
       this.emit('stateChange', state);
     }
-  }
-
-  private emitError(error: unknown): void {
-    const err = error instanceof Error ? error : new Error(String(error));
-    this.emit('error', err);
   }
 }

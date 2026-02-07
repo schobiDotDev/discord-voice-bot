@@ -9,10 +9,11 @@ export interface STTProvider {
 
   /**
    * Transcribe audio file to text
-   * @param audioPath Path to the audio file (MP3 format)
+   * @param audioPath Path to the audio file (WAV or MP3 format)
+   * @param language Optional language code (e.g., 'de', 'en')
    * @returns Transcribed text
    */
-  transcribe(audioPath: string): Promise<string>;
+  transcribe(audioPath: string, language?: string): Promise<string>;
 
   /**
    * Check if the provider is properly configured and available

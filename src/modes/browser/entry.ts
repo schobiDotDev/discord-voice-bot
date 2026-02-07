@@ -1,7 +1,5 @@
 import { config as dotenvConfig } from 'dotenv';
-import { BrowserManager } from './browser-manager.js';
-import { DiscordWeb } from './discord-web.js';
-import { AudioBridge } from './audio-bridge.js';
+import { AudioDeviceManager, type AudioDevicesConfig } from './audio-devices.js';
 import { CallManager } from './call-manager.js';
 import { ApiServer } from '../../services/api-server.js';
 import { WhisperAPIProvider } from '../../providers/stt/whisper-api.js';
@@ -79,75 +77,84 @@ function createTTSProviderFromEnv(): TTSProvider {
 
 /**
  * Start the bot in browser mode
- * Launches Puppeteer, logs into Discord Web, and exposes a REST/WS API
+ * Sets up virtual audio devices and exposes a REST/WS API
+ * Discord Web browser is managed externally (by OpenClaw or manually)
  */
 export async function startBrowserMode(): Promise<void> {
-  const email = process.env.DISCORD_EMAIL;
-  const password = process.env.DISCORD_PASSWORD;
-  const targetUserId = process.env.DISCORD_TARGET_USER_ID ?? '';
   const apiPort = parseInt(process.env.API_PORT ?? '8788', 10);
-  const blackholeDevice = process.env.BLACKHOLE_DEVICE ?? 'BlackHole 2ch';
-  const headless = process.env.BROWSER_HEADLESS === 'true';
 
-  if (!email || !password) {
-    log.error('DISCORD_EMAIL and DISCORD_PASSWORD are required for browser mode');
+  // Audio device configuration
+  const inputDevice = process.env.AUDIO_INPUT_DEVICE ?? 'BlackHole 16ch';
+  const outputDevice = process.env.AUDIO_OUTPUT_DEVICE ?? 'BlackHole 2ch';
+  const systemDevice = process.env.AUDIO_SYSTEM_DEVICE ?? 'MacBook Air-Lautsprecher';
+
+  // VAD configuration
+  const chunkSeconds = parseFloat(process.env.LISTEN_CHUNK_SECONDS ?? '3');
+  const volumeThresholdDb = parseFloat(process.env.VAD_VOLUME_THRESHOLD ?? '-50');
+  const silenceDurationMs = parseInt(process.env.VAD_SILENCE_DURATION ?? '1500', 10);
+  const minSpeechDurationMs = parseInt(process.env.VAD_MIN_SPEECH_DURATION ?? '500', 10);
+  const language = process.env.LANGUAGE ?? 'de';
+
+  log.info('Starting browser mode (audio-only)...');
+  log.info('Discord Web browser should be managed externally');
+
+  // Initialize audio devices
+  const audioDeviceConfig: AudioDevicesConfig = {
+    inputDevice,
+    outputDevice,
+    systemDevice,
+  };
+
+  const audioDevices = new AudioDeviceManager(audioDeviceConfig);
+  const devicesOk = await audioDevices.initialize();
+
+  if (!devicesOk) {
+    log.error('Audio device initialization failed. Ensure BlackHole is installed.');
+    log.error('Install with: brew install blackhole-2ch blackhole-16ch');
     process.exit(1);
   }
 
-  log.info('Starting browser mode...');
-
-  // Initialize providers (directly from env, no shared config dependency)
+  // Initialize providers
   const sttProvider = createSTTProviderFromEnv();
   const ttsProvider = createTTSProviderFromEnv();
 
-  // Launch browser
-  const browserManager = new BrowserManager({
-    profileDir: './browser-profile',
-    blackholeDevice,
-    headless,
+  // Create call manager
+  const callManager = new CallManager(sttProvider, ttsProvider, {
+    inputDeviceIndex: audioDevices.getInputDeviceIndex(),
+    outputDevice: audioDevices.getOutputDevice(),
+    systemDevice: audioDevices.getSystemDevice(),
+    chunkSeconds,
+    volumeThresholdDb,
+    silenceDurationMs,
+    minSpeechDurationMs,
+    language,
   });
-
-  const page = await browserManager.launch();
-
-  // Discord Web automation
-  const discordWeb = new DiscordWeb(page);
-
-  // Login
-  const loggedIn = await discordWeb.login(email, password);
-  if (!loggedIn) {
-    log.error('Discord login failed. Exiting.');
-    await browserManager.close();
-    process.exit(1);
-  }
-
-  // Audio bridge
-  const audioBridge = new AudioBridge({
-    blackholeDevice,
-    ttsProvider,
-  });
-  await audioBridge.attach(page);
-
-  // Call manager
-  const callManager = new CallManager(discordWeb, audioBridge, sttProvider, {
-    targetUserId,
-  });
-
-  // Start watching for incoming calls
-  callManager.startIncomingCallWatch();
 
   // API server
   const apiServer = new ApiServer(callManager, { port: apiPort });
   await apiServer.start();
 
   log.info(`Browser mode ready. API at http://localhost:${apiPort}`);
-  log.info(`Target user: ${targetUserId || '(none — use POST /call/:userId)'}`);
+  log.info('');
+  log.info('Setup instructions:');
+  log.info('1. Open Discord Web in a browser');
+  log.info(`2. Set Discord input device to: ${outputDevice}`);
+  log.info(`3. Set Discord output device to: ${inputDevice}`);
+  log.info('4. Join a voice call or DM call');
+  log.info(`5. POST http://localhost:${apiPort}/call/start to begin listening`);
+  log.info('');
+  log.info('API endpoints:');
+  log.info('  POST /call/start  — Start listening for voice');
+  log.info('  POST /hangup      — Stop listening');
+  log.info('  POST /speak       — Speak text via TTS (body: { text: string })');
+  log.info('  GET  /status      — Get current state');
+  log.info('  WS   /ws          — Real-time events');
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     log.info(`Received ${signal}, shutting down browser mode...`);
     await callManager.dispose();
     await apiServer.stop();
-    await browserManager.close();
     process.exit(0);
   };
 

@@ -16,19 +16,26 @@ export class WhisperLocalProvider implements STTProvider {
     this.config = config;
   }
 
-  async transcribe(audioPath: string): Promise<string> {
+  async transcribe(audioPath: string, language?: string): Promise<string> {
+    // Detect file type from extension
+    const isWav = audioPath.toLowerCase().endsWith('.wav');
+    const mimeType = isWav ? 'audio/wav' : 'audio/mpeg';
+    const filename = isWav ? 'audio.wav' : 'audio.mp3';
+    
     const formData = new FormData();
     formData.append('file', createReadStream(audioPath), {
-      filename: 'audio.mp3',
-      contentType: 'audio/mpeg',
+      filename,
+      contentType: mimeType,
     });
 
     // Local whisper.cpp typically uses 'temperature' and 'response_format' params
     formData.append('temperature', '0.0');
     formData.append('response_format', 'json');
 
-    if (this.config.language) {
-      formData.append('language', this.config.language);
+    // Use provided language or fall back to config
+    const lang = language ?? this.config.language;
+    if (lang) {
+      formData.append('language', lang);
     }
 
     try {

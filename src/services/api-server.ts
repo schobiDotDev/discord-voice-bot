@@ -12,11 +12,14 @@ export interface ApiServerConfig {
  * REST API + WebSocket server for browser mode control
  *
  * REST endpoints:
- *   POST /call/:userId  — Start a call to a user
- *   POST /answer        — Answer an incoming call
- *   POST /hangup        — Hang up the current call
- *   POST /speak         — Speak text via TTS (body: { text: string })
- *   GET  /status        — Get current call state
+ *   POST /call/start   — Start listening for voice
+ *   POST /call/:userId — Start a call (alias for /call/start)
+ *   POST /answer       — Answer an incoming call (alias for /call/start)
+ *   POST /hangup       — Stop listening
+ *   POST /speak        — Speak text via TTS (body: { text: string })
+ *   POST /listen       — Listen for a single utterance and return transcription
+ *   GET  /status       — Get current state
+ *   GET  /health       — Health check
  *
  * WebSocket /ws:
  *   Broadcasts live events: { type: 'transcription' | 'response' | 'stateChange', data: ... }
@@ -118,20 +121,31 @@ export class ApiServer {
       });
     });
 
-    // Start a call
+    // Start listening (new main endpoint)
+    this.app.post('/call/start', async (_req: Request, res: Response) => {
+      try {
+        const success = await this.callManager.startCall();
+        if (success) {
+          res.json({ status: 'started', state: this.callManager.getState() });
+        } else {
+          res.status(409).json({ error: 'Failed to start', state: this.callManager.getState() });
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: msg });
+      }
+    });
+
+    // Start a call (legacy endpoint for compatibility)
     this.app.post('/call/:userId', async (req: Request, res: Response) => {
       const userId = req.params['userId'] as string | undefined;
-      if (!userId) {
-        res.status(400).json({ error: 'userId is required' });
-        return;
-      }
 
       try {
         const success = await this.callManager.startCall(userId);
         if (success) {
-          res.json({ status: 'calling', userId });
+          res.json({ status: 'started', userId, state: this.callManager.getState() });
         } else {
-          res.status(409).json({ error: 'Failed to start call', state: this.callManager.getState() });
+          res.status(409).json({ error: 'Failed to start', state: this.callManager.getState() });
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -139,14 +153,14 @@ export class ApiServer {
       }
     });
 
-    // Answer incoming call
+    // Answer incoming call (alias for start in audio-only mode)
     this.app.post('/answer', async (_req: Request, res: Response) => {
       try {
         const success = await this.callManager.answerCall();
         if (success) {
-          res.json({ status: 'connected' });
+          res.json({ status: 'started' });
         } else {
-          res.status(409).json({ error: 'No incoming call to answer' });
+          res.status(409).json({ error: 'Failed to start' });
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -154,11 +168,11 @@ export class ApiServer {
       }
     });
 
-    // Hang up
+    // Hang up / stop listening
     this.app.post('/hangup', async (_req: Request, res: Response) => {
       try {
         await this.callManager.hangUp();
-        res.json({ status: 'idle' });
+        res.json({ status: 'stopped' });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         res.status(500).json({ error: msg });
@@ -176,6 +190,46 @@ export class ApiServer {
       try {
         await this.callManager.speak(text);
         res.json({ status: 'spoken', text });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: msg });
+      }
+    });
+
+    // Listen for a single utterance
+    this.app.post('/listen', async (_req: Request, res: Response) => {
+      try {
+        const transcription = await this.callManager.listenOnce();
+        if (transcription) {
+          res.json({ status: 'transcribed', text: transcription });
+        } else {
+          res.json({ status: 'no_speech', text: null });
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: msg });
+      }
+    });
+
+    // Conversation control endpoints
+    this.app.post('/conversation/start', async (_req: Request, res: Response) => {
+      try {
+        const success = await this.callManager.startCall();
+        if (success) {
+          res.json({ status: 'started' });
+        } else {
+          res.status(409).json({ error: 'Already running' });
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: msg });
+      }
+    });
+
+    this.app.post('/conversation/stop', async (_req: Request, res: Response) => {
+      try {
+        await this.callManager.hangUp();
+        res.json({ status: 'stopped' });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         res.status(500).json({ error: msg });

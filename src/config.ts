@@ -61,13 +61,30 @@ const configSchema = z.object({
   vad: z.object({
     silenceDuration: z.number().int().positive().default(1500),
     minSpeechDuration: z.number().int().positive().default(500),
+    volumeThreshold: z.number().default(-50), // dB, below this is silence
   }),
 
   // Audio
   audio: z.object({
     sampleRate: z.number().int().positive().default(48000),
     channels: z.literal(1).or(z.literal(2)).default(1),
+    chunkSeconds: z.number().positive().default(3), // Recording chunk duration
   }),
+
+  // Browser mode audio devices (macOS BlackHole)
+  browserAudio: z.object({
+    inputDevice: z.string().default('BlackHole 16ch'), // Record from (Discord speaker output)
+    outputDevice: z.string().default('BlackHole 2ch'), // Play TTS to (Discord mic input)
+    systemDevice: z.string().default('MacBook Air-Lautsprecher'), // Restore system output
+  }),
+
+  // API server (browser mode)
+  api: z.object({
+    port: z.number().int().positive().default(8788),
+  }),
+
+  // Language
+  language: z.string().default('de'),
 
   // Logging
   logLevel: z.number().int().min(1).max(3).default(2),
@@ -133,11 +150,22 @@ function parseConfig(): Config {
     vad: {
       silenceDuration: parseInt(process.env.VAD_SILENCE_DURATION ?? '1500', 10),
       minSpeechDuration: parseInt(process.env.VAD_MIN_SPEECH_DURATION ?? '500', 10),
+      volumeThreshold: parseFloat(process.env.VAD_VOLUME_THRESHOLD ?? '-50'),
     },
     audio: {
       sampleRate: parseInt(process.env.AUDIO_SAMPLE_RATE ?? '48000', 10),
       channels: parseInt(process.env.AUDIO_CHANNELS ?? '1', 10),
+      chunkSeconds: parseFloat(process.env.LISTEN_CHUNK_SECONDS ?? '3'),
     },
+    browserAudio: {
+      inputDevice: process.env.AUDIO_INPUT_DEVICE ?? 'BlackHole 16ch',
+      outputDevice: process.env.AUDIO_OUTPUT_DEVICE ?? 'BlackHole 2ch',
+      systemDevice: process.env.AUDIO_SYSTEM_DEVICE ?? 'MacBook Air-Lautsprecher',
+    },
+    api: {
+      port: parseInt(process.env.API_PORT ?? '8788', 10),
+    },
+    language: process.env.LANGUAGE ?? 'de',
     logLevel: parseInt(process.env.LOG_LEVEL ?? '2', 10),
   };
 

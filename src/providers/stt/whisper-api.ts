@@ -15,16 +15,24 @@ export class WhisperAPIProvider implements STTProvider {
     this.config = config;
   }
 
-  async transcribe(audioPath: string): Promise<string> {
+  async transcribe(audioPath: string, language?: string): Promise<string> {
     const fileBuffer = readFileSync(audioPath);
-    const blob = new Blob([fileBuffer], { type: 'audio/mpeg' });
+    
+    // Detect file type from extension
+    const isWav = audioPath.toLowerCase().endsWith('.wav');
+    const mimeType = isWav ? 'audio/wav' : 'audio/mpeg';
+    const filename = isWav ? 'audio.wav' : 'audio.mp3';
+    
+    const blob = new Blob([fileBuffer], { type: mimeType });
 
     const formData = new FormData();
     formData.append('model', this.config.model);
-    formData.append('file', blob, 'audio.mp3');
+    formData.append('file', blob, filename);
 
-    if (this.config.language) {
-      formData.append('language', this.config.language);
+    // Use provided language or fall back to config
+    const lang = language ?? this.config.language;
+    if (lang) {
+      formData.append('language', lang);
     }
 
     const headers: Record<string, string> = {};
