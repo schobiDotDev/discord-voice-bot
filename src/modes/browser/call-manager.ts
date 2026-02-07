@@ -103,6 +103,12 @@ export class CallManager extends EventEmitter {
 
     await this.conversation.start();
     logger.info('Voice session active');
+
+    // Auto-Greeting
+    setTimeout(() => {
+      this.conversation.speak("Hallo Felix! Ich höre.");
+    }, 1000);
+
     return true;
   }
 
