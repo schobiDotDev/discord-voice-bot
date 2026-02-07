@@ -16,6 +16,9 @@ sounds/*.wav
 sounds/*.ogg
 !sounds/.gitkeep
 
+# Wake word models (large ONNX files — download separately)
+models/openwakeword/*.onnx
+
 # Logs
 *.log
 npm-debug.log*
