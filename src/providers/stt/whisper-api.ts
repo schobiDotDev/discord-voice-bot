@@ -1,5 +1,4 @@
-import { createReadStream } from 'node:fs';
-import FormData from 'form-data';
+import { readFileSync } from 'node:fs';
 import { request } from 'undici';
 import { logger } from '../../utils/logger.js';
 import type { STTProvider, STTConfig } from './interface.js';
@@ -17,20 +16,18 @@ export class WhisperAPIProvider implements STTProvider {
   }
 
   async transcribe(audioPath: string): Promise<string> {
+    const fileBuffer = readFileSync(audioPath);
+    const blob = new Blob([fileBuffer], { type: 'audio/mpeg' });
+
     const formData = new FormData();
     formData.append('model', this.config.model);
-    formData.append('file', createReadStream(audioPath), {
-      filename: 'audio.mp3',
-      contentType: 'audio/mpeg',
-    });
+    formData.append('file', blob, 'audio.mp3');
 
     if (this.config.language) {
       formData.append('language', this.config.language);
     }
 
-    const headers: Record<string, string> = {
-      ...formData.getHeaders(),
-    };
+    const headers: Record<string, string> = {};
 
     if (this.config.apiKey) {
       headers['Authorization'] = `Bearer ${this.config.apiKey}`;
@@ -40,7 +37,7 @@ export class WhisperAPIProvider implements STTProvider {
       const response = await request(this.config.apiUrl, {
         method: 'POST',
         headers,
-        body: formData.getBuffer(),
+        body: formData,
       });
 
       if (response.statusCode !== 200) {

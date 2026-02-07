@@ -5,6 +5,7 @@ import {
   AudioPlayerStatus,
   VoiceConnection,
   NoSubscriberBehavior,
+  StreamType,
 } from '@discordjs/voice';
 import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
@@ -56,6 +57,14 @@ export class VoicePlayer {
   setConnection(connection: VoiceConnection): void {
     this.connection = connection;
     connection.subscribe(this.player);
+
+    // Send a short silence frame to kick-start Discord audio receiving
+    // Discord doesn't send user audio until the bot has subscribed and sent at least one packet
+    const silenceBuffer = Buffer.alloc(48000 * 2 * 0.25, 0); // 250ms of silence (48kHz, 16-bit mono)
+    const silenceStream = Readable.from(silenceBuffer);
+    const silenceResource = createAudioResource(silenceStream, { inputType: StreamType.Raw });
+    this.player.play(silenceResource);
+    logger.debug('Sent initial silence frame to enable audio receiving');
   }
 
   /**

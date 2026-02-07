@@ -1,6 +1,14 @@
 import { Bot } from './bot.js';
 import { logger } from './utils/logger.js';
 
+// Global error handlers to prevent silent crashes
+process.on('uncaughtException', (error) => {
+  logger.error(`Uncaught exception: ${error.stack || error.message}`);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled rejection: ${reason}`);
+});
+
 const bot = new Bot();
 
 // Graceful shutdown handlers
