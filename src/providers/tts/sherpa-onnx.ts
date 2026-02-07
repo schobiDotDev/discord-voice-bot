@@ -25,7 +25,7 @@ export class SherpaOnnxProvider implements TTSProvider {
         body: JSON.stringify({
           input: text,
           voice: this.config.voice,
-          response_format: 'mp3',
+          response_format: 'wav',
           speed: this.config.speed ?? 1.0,
         }),
       });

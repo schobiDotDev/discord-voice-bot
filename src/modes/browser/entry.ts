@@ -62,7 +62,7 @@ function createTTSProviderFromEnv(): TTSProvider {
     case 'openai':
       return new OpenAITTSProvider({ apiUrl, apiKey, model, voice });
     case 'sherpa-onnx':
-      return new SherpaOnnxProvider({ apiUrl, apiKey, model, voice });
+      return new SherpaOnnxProvider({ apiUrl, apiKey, model, voice, speed: 1.1 });
     case 'elevenlabs':
       return new ElevenLabsProvider({
         apiUrl: apiUrl || 'https://api.elevenlabs.io/v1',
@@ -129,6 +129,33 @@ export async function startBrowserMode(): Promise<void> {
     minSpeechDurationMs,
     language,
   });
+
+  // OpenClaw bridge configuration
+  const openclawBridgeUrl = process.env.OPENCLAW_BRIDGE_URL ?? 'http://127.0.0.1:8790/inbound';
+  const openclawBridgeEnabled = process.env.OPENCLAW_BRIDGE_ENABLED !== 'false';
+
+  if (openclawBridgeEnabled) {
+    log.info(`OpenClaw bridge enabled → ${openclawBridgeUrl}`);
+
+    // Set response callback: transcriptions are sent to OpenClaw plugin
+    // OpenClaw will respond via the channel's sendText → POST /speak
+    callManager.on('transcription', async (text: string) => {
+      try {
+        const res = await fetch(openclawBridgeUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) {
+          log.error(`OpenClaw bridge error: ${res.status} ${res.statusText}`);
+        } else {
+          log.info(`Dispatched to OpenClaw: "${text.substring(0, 60)}"`);
+        }
+      } catch (err) {
+        log.error(`OpenClaw bridge unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+  }
 
   // API server
   const apiServer = new ApiServer(callManager, { port: apiPort });
