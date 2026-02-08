@@ -11,7 +11,7 @@ import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import ffmpeg from 'fluent-ffmpeg';
 import { Readable } from 'node:stream';
-import { logger } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import { config } from '../config.js';
 import { getSoundPath, soundExists, splitTextForTTS, saveAudioBuffer } from '../utils/audio.js';
 import type { TTSProvider } from '../providers/tts/index.js';

@@ -1,66 +1,60 @@
-import { config } from '../config.js';
+/**
+ * Centralized Winston logger for discord-voice-bot
+ * Replaces all console.log/warn/error calls
+ */
 
-export enum LogLevel {
-  ERROR = 1,
-  INFO = 2,
-  DEBUG = 3,
-}
+import winston from 'winston';
+import path from 'path';
 
-export interface LogContext {
-  userId?: string;
-  guildId?: string;
-  channelId?: string;
-  command?: string;
-  [key: string]: string | number | boolean | undefined;
-}
+// Log levels configuration
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
-class Logger {
-  private level: LogLevel;
+// Create the Winston logger
+const logger = winston.createLogger({
+  levels: {
+    error: 0,
+    warn: 1,
+    info: 2,
+    debug: 3,
+  },
+  level: LOG_LEVEL,
+  format: winston.format.combine(
+    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    winston.format.errors({ stack: true }),
+    winston.format.splat(),
+  ),
+  transports: [
+    // Console transport with colorized output
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.printf(({ timestamp, level, message, ...meta }) => {
+          let msg = `[${timestamp}] ${level}: ${message}`;
+          if (Object.keys(meta).length > 0) {
+            msg += ` ${JSON.stringify(meta)}`;
+          }
+          return msg;
+        }),
+      ),
+    }),
+    // File transport with JSON format
+    new winston.transports.File({
+      filename: path.join(process.cwd(), 'logs', 'app.log'),
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.json(),
+      ),
+      maxsize: 10485760, // 10MB
+      maxFiles: 5,
+    }),
+  ],
+});
 
-  constructor(level: number) {
-    this.level = level as LogLevel;
-  }
+// Add stream for Morgan or similar middleware compatibility
+(logger as any).stream = {
+  write: (message: string) => {
+    logger.info(message.trim());
+  },
+};
 
-  private formatContext(context?: LogContext): string {
-    if (!context || Object.keys(context).length === 0) {
-      return '';
-    }
-    const parts = Object.entries(context)
-      .filter(([_, v]) => v !== undefined)
-      .map(([k, v]) => `${k}=${v}`);
-    return parts.length > 0 ? ` [${parts.join(' ')}]` : '';
-  }
-
-  private formatMessage(level: string, message: string, context?: LogContext): string {
-    const timestamp = new Date().toISOString();
-    return `[${timestamp}] [${level}]${this.formatContext(context)} ${message}`;
-  }
-
-  error(message: string, context?: LogContext): void {
-    console.error(this.formatMessage('ERROR', message, context));
-  }
-
-  warn(message: string, context?: LogContext): void {
-    if (this.level >= LogLevel.INFO) {
-      console.warn(this.formatMessage('WARN', message, context));
-    }
-  }
-
-  info(message: string, context?: LogContext): void {
-    if (this.level >= LogLevel.INFO) {
-      console.info(this.formatMessage('INFO', message, context));
-    }
-  }
-
-  debug(message: string, context?: LogContext): void {
-    if (this.level >= LogLevel.DEBUG) {
-      console.debug(this.formatMessage('DEBUG', message, context));
-    }
-  }
-
-  setLevel(level: LogLevel): void {
-    this.level = level;
-  }
-}
-
-export const logger = new Logger(config.logLevel);
+export default logger;

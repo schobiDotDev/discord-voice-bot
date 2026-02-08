@@ -1,7 +1,7 @@
 import * as ort from 'onnxruntime-node';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 import type { WakeWordProvider, WakeWordResult, WakeWordConfig } from './interface.js';
 
 /**

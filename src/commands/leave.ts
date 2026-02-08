@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
-import { logger } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import { voiceConnectionManager } from '../voice/index.js';
 import type { VoiceAssistant } from '../services/index.js';
 

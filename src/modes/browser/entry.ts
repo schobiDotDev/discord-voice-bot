@@ -9,21 +9,9 @@ import { OpenAITTSProvider } from '../../providers/tts/openai-tts.js';
 import { ElevenLabsProvider } from '../../providers/tts/elevenlabs.js';
 import type { STTProvider } from '../../providers/stt/interface.js';
 import type { TTSProvider } from '../../providers/tts/interface.js';
+import logger from '../../utils/logger.js';
 
 dotenvConfig();
-
-// Minimal logger for browser mode (avoids importing shared config which requires DISCORD_TOKEN)
-const LOG_LEVEL = parseInt(process.env.LOG_LEVEL ?? '2', 10);
-
-const log = {
-  error: (msg: string) => console.error(`[${new Date().toISOString()}] [ERROR] ${msg}`),
-  info: (msg: string) => {
-    if (LOG_LEVEL >= 2) console.info(`[${new Date().toISOString()}] [INFO] ${msg}`);
-  },
-  debug: (msg: string) => {
-    if (LOG_LEVEL >= 3) console.debug(`[${new Date().toISOString()}] [DEBUG] ${msg}`);
-  },
-};
 
 /**
  * Create STT provider from env vars (avoids shared config dependency)
@@ -34,7 +22,7 @@ function createSTTProviderFromEnv(): STTProvider {
   const apiKey = process.env.STT_API_KEY;
   const model = process.env.STT_MODEL ?? 'whisper-1';
 
-  log.info(`STT provider: ${provider}`);
+  logger.info(`STT provider: ${provider}`);
 
   switch (provider) {
     case 'whisper-api':
@@ -56,7 +44,7 @@ function createTTSProviderFromEnv(): TTSProvider {
   const model = process.env.TTS_MODEL;
   const voice = process.env.TTS_VOICE ?? 'nova';
 
-  log.info(`TTS provider: ${provider}`);
+  logger.info(`TTS provider: ${provider}`);
 
   switch (provider) {
     case 'openai':
@@ -95,8 +83,8 @@ export async function startBrowserMode(): Promise<void> {
   const minSpeechDurationMs = parseInt(process.env.VAD_MIN_SPEECH_DURATION ?? '500', 10);
   const language = process.env.LANGUAGE ?? 'de';
 
-  log.info('Starting browser mode (audio-only)...');
-  log.info('Discord Web browser should be managed externally');
+  logger.info('Starting browser mode (audio-only)...');
+  logger.info('Discord Web browser should be managed externally');
 
   // Initialize audio devices
   const audioDeviceConfig: AudioDevicesConfig = {
@@ -109,8 +97,8 @@ export async function startBrowserMode(): Promise<void> {
   const devicesOk = await audioDevices.initialize();
 
   if (!devicesOk) {
-    log.error('Audio device initialization failed. Ensure BlackHole is installed.');
-    log.error('Install with: brew install blackhole-2ch blackhole-16ch');
+    logger.error('Audio device initialization failed. Ensure BlackHole is installed.');
+    logger.error('Install with: brew install blackhole-2ch blackhole-16ch');
     process.exit(1);
   }
 
@@ -135,7 +123,7 @@ export async function startBrowserMode(): Promise<void> {
   const openclawBridgeEnabled = process.env.OPENCLAW_BRIDGE_ENABLED !== 'false';
 
   if (openclawBridgeEnabled) {
-    log.info(`OpenClaw bridge enabled → ${openclawBridgeUrl}`);
+    logger.info(`OpenClaw bridge enabled → ${openclawBridgeUrl}`);
 
     // Set response callback: transcriptions are sent to OpenClaw plugin
     // OpenClaw will respond via the channel's sendText → POST /speak
@@ -147,12 +135,12 @@ export async function startBrowserMode(): Promise<void> {
           body: JSON.stringify({ text }),
         });
         if (!res.ok) {
-          log.error(`OpenClaw bridge error: ${res.status} ${res.statusText}`);
+          logger.error(`OpenClaw bridge error: ${res.status} ${res.statusText}`);
         } else {
-          log.info(`Dispatched to OpenClaw: "${text.substring(0, 60)}"`);
+          logger.info(`Dispatched to OpenClaw: "${text.substring(0, 60)}"`);
         }
       } catch (err) {
-        log.error(`OpenClaw bridge unreachable: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`OpenClaw bridge unreachable: ${err instanceof Error ? err.message : String(err)}`);
       }
     });
   }
@@ -161,25 +149,25 @@ export async function startBrowserMode(): Promise<void> {
   const apiServer = new ApiServer(callManager, { port: apiPort });
   await apiServer.start();
 
-  log.info(`Browser mode ready. API at http://localhost:${apiPort}`);
-  log.info('');
-  log.info('Setup instructions:');
-  log.info('1. Open Discord Web in a browser');
-  log.info(`2. Set Discord input device to: ${outputDevice}`);
-  log.info(`3. Set Discord output device to: ${inputDevice}`);
-  log.info('4. Join a voice call or DM call');
-  log.info(`5. POST http://localhost:${apiPort}/call/start to begin listening`);
-  log.info('');
-  log.info('API endpoints:');
-  log.info('  POST /call/start  — Start listening for voice');
-  log.info('  POST /hangup      — Stop listening');
-  log.info('  POST /speak       — Speak text via TTS (body: { text: string })');
-  log.info('  GET  /status      — Get current state');
-  log.info('  WS   /ws          — Real-time events');
+  logger.info(`Browser mode ready. API at http://localhost:${apiPort}`);
+  logger.info('');
+  logger.info('Setup instructions:');
+  logger.info('1. Open Discord Web in a browser');
+  logger.info(`2. Set Discord input device to: ${outputDevice}`);
+  logger.info(`3. Set Discord output device to: ${inputDevice}`);
+  logger.info('4. Join a voice call or DM call');
+  logger.info(`5. POST http://localhost:${apiPort}/call/start to begin listening`);
+  logger.info('');
+  logger.info('API endpoints:');
+  logger.info('  POST /call/start  — Start listening for voice');
+  logger.info('  POST /hangup      — Stop listening');
+  logger.info('  POST /speak       — Speak text via TTS (body: { text: string })');
+  logger.info('  GET  /status      — Get current state');
+  logger.info('  WS   /ws          — Real-time events');
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
-    log.info(`Received ${signal}, shutting down browser mode...`);
+    logger.info(`Received ${signal}, shutting down browser mode...`);
     await callManager.dispose();
     await apiServer.stop();
     process.exit(0);

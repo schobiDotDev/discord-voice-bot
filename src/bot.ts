@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits, Events, VoiceState } from 'discord.js';
 import { config } from './config.js';
-import { logger } from './utils/logger.js';
+import logger from './utils/logger.js';
 import { ensureDirectories, cleanupAllRecordings } from './utils/audio.js';
 import { voiceConnectionManager } from './voice/index.js';
 import { createSTTProvider } from './providers/stt/index.js';

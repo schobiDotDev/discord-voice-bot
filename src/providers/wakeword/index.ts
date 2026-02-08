@@ -1,5 +1,5 @@
 import { config } from '../../config.js';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 import type { WakeWordProvider } from './interface.js';
 import { OpenWakeWordProvider } from './openwakeword.js';
 

@@ -2,7 +2,7 @@ import { VoiceConnection } from '@discordjs/voice';
 import type { VoiceBasedChannel, GuildMember } from 'discord.js';
 import { promises as fs } from 'node:fs';
 import { config, isUserAllowed } from '../config.js';
-import { logger } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import { cleanupAudioFiles } from '../utils/audio.js';
 import { voiceRecorder, voicePlayer } from '../voice/index.js';
 import type { RecordingResult } from '../voice/index.js';

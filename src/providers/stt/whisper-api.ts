@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { request } from 'undici';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 import type { STTProvider, STTConfig } from './interface.js';
 
 /**

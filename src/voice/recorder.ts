@@ -2,7 +2,7 @@ import { VoiceConnection, EndBehaviorType } from '@discordjs/voice';
 import { createWriteStream } from 'node:fs';
 // Use opusscript (pure JS) instead of @discordjs/opus (native C++) to avoid segfaults
 import OpusScript from 'opusscript';
-import { logger } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import { config } from '../config.js';
 import { getPcmPath, getMp3Path, convertPcmToMp3, cleanupAudioFiles } from '../utils/audio.js';
 
