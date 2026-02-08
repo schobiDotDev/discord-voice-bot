@@ -30,8 +30,19 @@ export class AudioBridge {
   }
 
   /**
+   * Prepare system audio routing for a DM call.
+   * Sets system input to BlackHole 2ch and output to BlackHole 16ch.
+   */
+  prepareForCall(): void {
+    this.switchAudioInput(this.playbackDevice);  // BlackHole 2ch as system input
+    this.switchAudioOutput(this.recordDevice);   // BlackHole 16ch as system output
+    logger.info('Audio prepared for DM call');
+  }
+
+  /**
    * Play a WAV/audio buffer into Discord via BlackHole.
-   * Switches system output → BlackHole 2ch → plays with afplay → restores.
+   * Switches system output → BlackHole 2ch → plays with afplay →
+   * switches back to BlackHole 16ch (so Discord output stays routed for recording).
    */
   async playToDiscord(audioBuffer: Buffer): Promise<void> {
     const tmpFile = join(this.recordingsDir, `tts-${Date.now()}.wav`);
@@ -48,7 +59,9 @@ export class AudioBridge {
 
       logger.debug('TTS playback complete');
     } finally {
-      this.restoreAudio();
+      // Switch back to record device (NOT system speaker) so Discord
+      // output continues flowing to BlackHole 16ch for recording
+      this.switchAudioOutput(this.recordDevice);
       try { unlinkSync(tmpFile); } catch {}
     }
   }
@@ -114,6 +127,11 @@ export class AudioBridge {
   private switchAudioOutput(device: string): void {
     execSync(`SwitchAudioSource -s "${device}" -t output`, { stdio: 'pipe' });
     logger.debug(`Audio output → ${device}`);
+  }
+
+  private switchAudioInput(device: string): void {
+    execSync(`SwitchAudioSource -s "${device}" -t input`, { stdio: 'pipe' });
+    logger.debug(`Audio input → ${device}`);
   }
 
   /**

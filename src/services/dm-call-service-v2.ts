@@ -109,6 +109,9 @@ export class DmCallService {
     };
 
     try {
+      // Phase 0: Prepare audio routing
+      this.audio.prepareForCall();
+
       // Phase 1: Connect
       this.updateStatus(callId, 'connecting');
       await this.browser.connect();
