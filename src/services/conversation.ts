@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import type { TextBridgeService, TranscriptionMetadata } from './text-bridge.js';
+import { ConversationMemory } from './conversation-memory.js';
 
 /**
  * Manages voice conversations by bridging to the text channel
@@ -7,9 +8,11 @@ import type { TextBridgeService, TranscriptionMetadata } from './text-bridge.js'
 export class ConversationService {
   private textBridge: TextBridgeService;
   private usernames: Map<string, string> = new Map();
+  private memory: ConversationMemory;
 
   constructor(textBridge: TextBridgeService) {
     this.textBridge = textBridge;
+    this.memory = new ConversationMemory();
   }
 
   /**
@@ -32,15 +35,29 @@ export class ConversationService {
   async chat(userId: string, userMessage: string, durationSeconds: number): Promise<string> {
     const username = this.getUsername(userId);
 
+    // Store user message in memory
+    this.memory.addMessage(userId, 'user', userMessage);
+
+    // Build transcription with conversation context
+    const historyContext = this.memory.formatHistoryContext(userId);
+    const transcriptionWithContext = historyContext
+      ? `${historyContext}\n\n🎤 **Current message:** ${userMessage}`
+      : userMessage;
+
     const metadata: TranscriptionMetadata = {
       userId,
       username,
-      transcription: userMessage,
+      transcription: transcriptionWithContext,
       durationSeconds,
     };
 
     try {
       const response = await this.textBridge.postAndWaitForResponse(metadata);
+
+      // Store assistant response in memory
+      if (response) {
+        this.memory.addMessage(userId, 'assistant', response);
+      }
 
       logger.info(`Response for user ${username}: "${response.substring(0, 100)}..."`);
       return response;
@@ -51,6 +68,14 @@ export class ConversationService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Clear conversation memory for a user
+   */
+  clearMemory(userId: string): void {
+    this.memory.clearHistory(userId);
+    logger.info(`Cleared conversation memory for user ${userId}`);
   }
 
   /**
@@ -74,5 +99,12 @@ export class ConversationService {
    */
   hasPendingRequest(userId: string): boolean {
     return this.textBridge.hasPendingRequest(userId);
+  }
+
+  /**
+   * Dispose of resources
+   */
+  dispose(): void {
+    this.memory.dispose();
   }
 }
