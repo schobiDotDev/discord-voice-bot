@@ -27,8 +27,8 @@ const configSchema = z.object({
 
   // Text Bridge (for external bot integration)
   textBridge: z.object({
-    channelId: z.string().min(1, 'TEXT_CHANNEL_ID is required'),
-    responderBotId: z.string().min(1, 'RESPONDER_BOT_ID is required'),
+    channelId: z.string().optional(),
+    responderBotId: z.string().optional(),
     responseTimeout: z.number().int().positive().default(30000),
   }),
 
@@ -126,8 +126,8 @@ function parseConfig(): Config {
           .filter(Boolean) ?? [],
     },
     textBridge: {
-      channelId: process.env.TEXT_CHANNEL_ID ?? '',
-      responderBotId: process.env.RESPONDER_BOT_ID ?? '',
+      channelId: process.env.TEXT_CHANNEL_ID || undefined,
+      responderBotId: process.env.RESPONDER_BOT_ID || undefined,
       responseTimeout: parseInt(process.env.RESPONSE_TIMEOUT ?? '30000', 10),
     },
     openclawBridge: {

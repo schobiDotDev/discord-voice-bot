@@ -45,7 +45,8 @@ export class TextBridgeService extends EventEmitter {
 
     const channelId = config.textBridge.channelId;
     if (!channelId) {
-      throw new Error('TEXT_CHANNEL_ID is not configured');
+      logger.info('TEXT_CHANNEL_ID not set, text bridge logging disabled');
+      return;
     }
 
     const channel = await this.client.channels.fetch(channelId);
@@ -172,6 +173,7 @@ export class TextBridgeService extends EventEmitter {
   }
 
   private setupMessageListener(): void {
+    if (!config.textBridge.responderBotId) return;
     this.client.on(Events.MessageCreate, (message: Message) => {
       this.handleMessage(message);
     });
