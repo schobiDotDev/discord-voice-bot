@@ -20,6 +20,7 @@ export class AudioBridge {
   private systemDevice: string;
   private recordingsDir: string;
   private deviceIndex: number | null = null;
+  private playbackDeviceIndex: number | null = null;
 
   constructor() {
     this.playbackDevice = config.dmCall.blackholeInput;
@@ -41,27 +42,34 @@ export class AudioBridge {
 
   /**
    * Play a WAV/audio buffer into Discord via BlackHole.
-   * Switches system output → BlackHole 2ch → plays with afplay →
-   * switches back to BlackHole 16ch (so Discord output stays routed for recording).
+   * Uses ffmpeg audiotoolbox to send audio directly to BlackHole 2ch
+   * without changing the system output device. This avoids triggering
+   * Discord's WebRTC echo cancellation.
    */
   async playToDiscord(audioBuffer: Buffer): Promise<void> {
     const tmpFile = join(this.recordingsDir, `tts-${Date.now()}.wav`);
     writeFileSync(tmpFile, audioBuffer);
+    const deviceIdx = await this.getPlaybackDeviceIndex();
 
     try {
-      this.switchAudioOutput(this.playbackDevice);
-
       await new Promise<void>((resolve, reject) => {
-        const proc = spawn('afplay', [tmpFile]);
-        proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`afplay exit ${code}`)));
+        const proc = spawn('ffmpeg', [
+          '-re', '-i', tmpFile,
+          '-af', 'adelay=500|500,apad=pad_dur=0.5',
+          '-f', 'audiotoolbox',
+          '-audio_device_index', String(deviceIdx),
+          '-',
+        ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+        proc.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`ffmpeg playback exit ${code}`));
+        });
         proc.on('error', reject);
       });
 
       logger.debug('TTS playback complete');
     } finally {
-      // Switch back to record device (NOT system speaker) so Discord
-      // output continues flowing to BlackHole 16ch for recording
-      this.switchAudioOutput(this.recordDevice);
       try { unlinkSync(tmpFile); } catch {}
     }
   }
@@ -132,6 +140,39 @@ export class AudioBridge {
   private switchAudioInput(device: string): void {
     execSync(`SwitchAudioSource -s "${device}" -t input`, { stdio: 'pipe' });
     logger.debug(`Audio input → ${device}`);
+  }
+
+  /**
+   * Find the audiotoolbox output device index for BlackHole 2ch.
+   * This allows ffmpeg to play directly to the device without
+   * changing the system default output.
+   */
+  private async getPlaybackDeviceIndex(): Promise<number> {
+    if (this.playbackDeviceIndex !== null) return this.playbackDeviceIndex;
+
+    let output: string;
+    try {
+      output = execSync(
+        'ffmpeg -f lavfi -i "sine=frequency=1:duration=0.001" -f audiotoolbox -list_devices true - 2>&1',
+        { encoding: 'utf-8' },
+      );
+    } catch (err: unknown) {
+      output = (err as { stdout?: string; stderr?: string }).stdout
+        ?? (err as { stderr?: string }).stderr
+        ?? '';
+    }
+
+    const lines = output.split('\n');
+    for (const line of lines) {
+      const match = line.match(/\[(\d+)\]\s+(.+?)(?:,\s|$)/);
+      if (match && match[2].trim().includes(this.playbackDevice)) {
+        this.playbackDeviceIndex = parseInt(match[1], 10);
+        logger.debug(`Playback device "${this.playbackDevice}" → audiotoolbox index ${this.playbackDeviceIndex}`);
+        return this.playbackDeviceIndex;
+      }
+    }
+
+    throw new Error(`Playback device not found: ${this.playbackDevice}`);
   }
 
   /**

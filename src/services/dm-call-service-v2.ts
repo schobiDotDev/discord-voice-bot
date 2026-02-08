@@ -32,7 +32,7 @@ export interface ActiveCall {
   userId: string;
   callbackUrl: string;
   channelId: string;
-  status: 'connecting' | 'greeting' | 'recording' | 'transcribing';
+  status: 'connecting' | 'greeting' | 'recording' | 'transcribing' | 'responding';
   startedAt: Date;
 }
 
@@ -127,25 +127,36 @@ export class DmCallService {
       }
 
       await this.browser.ensureUnmuted();
-      await sleep(1500); // Audio stabilization
+      await sleep(4000); // Wait for Discord audio pipeline to stabilize
 
       // Phase 2: Greeting
       this.updateStatus(callId, 'greeting');
       const ttsAudio = await this.ttsProvider.synthesize(request.message);
       await this.audio.playToDiscord(ttsAudio);
-      await sleep(500); // Brief pause after speaking
+      await sleep(1000); // Pause after speaking before recording
 
       // Phase 3: Record with silence detection
       this.updateStatus(callId, 'recording');
       const audioFile = await this.recordWithSilenceDetection();
 
-      // Phase 4: Hang up & transcribe
-      await this.browser.hangup();
-      this.audio.restoreAudio();
-
+      // Phase 4: Transcribe (still connected!)
       this.updateStatus(callId, 'transcribing');
       const transcription = await this.sttProvider.transcribe(audioFile, config.language);
-      this.audio.cleanup(audioFile);
+      // Keep recording for debugging — don't cleanup
+      logger.info(`Recording kept: ${audioFile}`);
+
+      // Phase 5: Respond via TTS if we got real speech
+      if (transcription && !isWhisperHallucination(transcription)) {
+        this.updateStatus(callId, 'responding');
+        const responseText = `Du hast gesagt: ${transcription}`;
+        const responseTts = await this.ttsProvider.synthesize(responseText);
+        await this.audio.playToDiscord(responseTts);
+        await sleep(3000); // Let user hear the full response
+      }
+
+      // Phase 6: Hang up
+      await this.browser.hangup();
+      this.audio.restoreAudio();
 
       result.status = 'completed';
       result.transcription = transcription;
@@ -325,4 +336,16 @@ export class DmCallService {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
+}
+
+const WHISPER_HALLUCINATIONS = [
+  'untertitel der amara.org',
+  'amara.org-community',
+  'thank you for watching',
+  'thanks for watching',
+];
+
+function isWhisperHallucination(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  return WHISPER_HALLUCINATIONS.some(h => lower.includes(h));
 }
