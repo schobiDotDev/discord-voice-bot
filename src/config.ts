@@ -37,6 +37,18 @@ const configSchema = z.object({
     url: z.string().url().optional(),
   }).default({}),
 
+  // DM-Call service (standalone process for Discord DM voice calls via CDP)
+  dmCall: z.object({
+    port: z.number().int().positive().default(8792),
+    cdpUrl: z.string().default('ws://localhost:9222'),
+    blackholeInput: z.string().default('BlackHole 2ch'),
+    blackholeOutput: z.string().default('BlackHole 16ch'),
+    systemAudioDevice: z.string().default('MacBook Air-Lautsprecher'),
+    timeout: z.number().int().positive().default(60),
+    silenceTimeout: z.number().positive().default(1.5),
+    connectTimeout: z.number().int().positive().default(20000),
+  }).default({}),
+
   // STT
   stt: z.object({
     provider: z.enum(['whisper-api', 'whisper-local']).default('whisper-api'),
@@ -132,6 +144,16 @@ function parseConfig(): Config {
     },
     openclawBridge: {
       url: process.env.OPENCLAW_BRIDGE_URL || undefined,
+    },
+    dmCall: {
+      port: parseInt(process.env.DM_CALL_PORT ?? '8792', 10),
+      cdpUrl: process.env.CDP_URL ?? 'ws://localhost:9222',
+      blackholeInput: process.env.BLACKHOLE_INPUT ?? process.env.AUDIO_OUTPUT_DEVICE ?? 'BlackHole 2ch',
+      blackholeOutput: process.env.BLACKHOLE_OUTPUT ?? process.env.AUDIO_INPUT_DEVICE ?? 'BlackHole 16ch',
+      systemAudioDevice: process.env.AUDIO_SYSTEM_DEVICE ?? 'MacBook Air-Lautsprecher',
+      timeout: parseInt(process.env.DM_CALL_TIMEOUT ?? '60', 10),
+      silenceTimeout: parseFloat(process.env.DM_CALL_SILENCE ?? '1.5'),
+      connectTimeout: parseInt(process.env.DM_CALL_CONNECT_TIMEOUT ?? '20000', 10),
     },
     stt: {
       provider: process.env.STT_PROVIDER ?? 'whisper-api',
