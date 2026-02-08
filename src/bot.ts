@@ -6,7 +6,7 @@ import { voiceConnectionManager } from './voice/index.js';
 import { createSTTProvider } from './providers/stt/index.js';
 import { createTTSProvider } from './providers/tts/index.js';
 import { createWakeWordProvider } from './providers/wakeword/index.js';
-import { TextBridgeService, ConversationService, VoiceAssistant } from './services/index.js';
+import { TextBridgeService, ConversationService, VoiceAssistantMulti } from './services/index.js';
 import { registerCommands, handleCommand, type CommandContext } from './commands/index.js';
 
 /**
@@ -16,7 +16,7 @@ import { registerCommands, handleCommand, type CommandContext } from './commands
 export class Bot {
   private client: Client;
   private textBridge: TextBridgeService;
-  private voiceAssistant: VoiceAssistant;
+  private voiceAssistant: VoiceAssistantMulti;
   private conversationService: ConversationService;
   private wakeWordProvider: ReturnType<typeof createWakeWordProvider>;
 
@@ -40,7 +40,7 @@ export class Bot {
 
     // Initialize services
     this.conversationService = new ConversationService(this.textBridge);
-    this.voiceAssistant = new VoiceAssistant(
+    this.voiceAssistant = new VoiceAssistantMulti(
       sttProvider,
       ttsProvider,
       this.conversationService,

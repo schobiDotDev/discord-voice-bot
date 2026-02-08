@@ -17,6 +17,7 @@ export interface TranscriptionMetadata {
   username: string;
   transcription: string;
   durationSeconds: number;
+  conversationContext?: string;
 }
 
 /**
@@ -67,10 +68,17 @@ export class TextBridgeService extends EventEmitter {
    * Format a transcription message with user metadata
    */
   private formatTranscriptionMessage(metadata: TranscriptionMetadata): string {
-    const { userId, username, transcription, durationSeconds } = metadata;
+    const { userId, username, transcription, durationSeconds, conversationContext } = metadata;
     const duration = durationSeconds.toFixed(1);
 
-    return `🎤 **${username}** (ID: ${userId}) | Dauer: ${duration}s\n> ${transcription}`;
+    let message = `🎤 **${username}** (ID: ${userId}) | Dauer: ${duration}s\n> ${transcription}`;
+
+    // Add conversation context if available
+    if (conversationContext) {
+      message += `\n\n${conversationContext}`;
+    }
+
+    return message;
   }
 
   /**

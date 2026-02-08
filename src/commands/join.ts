@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import logger from '../utils/logger.js';
 import { voiceConnectionManager } from '../voice/index.js';
-import type { VoiceAssistant, VoiceMode } from '../services/index.js';
+import type { VoiceAssistantMulti, VoiceMode } from '../services/index.js';
 
 export const data = new SlashCommandBuilder()
   .setName('join')
@@ -20,7 +20,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  voiceAssistant: VoiceAssistant
+  voiceAssistant: VoiceAssistantMulti
 ): Promise<void> {
   const member = interaction.member as GuildMember;
   const voiceChannel = member.voice.channel;

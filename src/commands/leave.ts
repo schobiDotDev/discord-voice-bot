@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import logger from '../utils/logger.js';
 import { voiceConnectionManager } from '../voice/index.js';
-import type { VoiceAssistant } from '../services/index.js';
+import type { VoiceAssistantMulti } from '../services/index.js';
 
 export const data = new SlashCommandBuilder()
   .setName('leave')
@@ -9,7 +9,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  voiceAssistant: VoiceAssistant
+  voiceAssistant: VoiceAssistantMulti
 ): Promise<void> {
   const guildId = interaction.guildId!;
 

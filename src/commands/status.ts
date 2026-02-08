@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { voiceConnectionManager } from '../voice/index.js';
-import type { VoiceAssistant } from '../services/index.js';
+import type { VoiceAssistantMulti } from '../services/index.js';
 import { config } from '../config.js';
 
 export const data = new SlashCommandBuilder()
@@ -9,12 +9,13 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  voiceAssistant: VoiceAssistant
+  voiceAssistant: VoiceAssistantMulti
 ): Promise<void> {
   const guildId = interaction.guildId!;
   const isConnected = voiceConnectionManager.isConnected(guildId);
   const mode = voiceAssistant.getMode(guildId);
-  const isProcessing = voiceAssistant.isProcessing(guildId);
+  // Note: Multi-user mode doesn't have single "isProcessing" state
+  const isProcessing = false; // Could be enhanced to show per-user status
 
   // Format access control info
   let accessInfo = 'Everyone';
