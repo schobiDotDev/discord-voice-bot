@@ -132,6 +132,16 @@ export class AudioBridge {
     try { unlinkSync(filePath); } catch {}
   }
 
+  /**
+   * Invalidate cached device indices.
+   * Call this when audio devices may have changed (e.g. AirPods connected/disconnected).
+   */
+  invalidateDeviceCache(): void {
+    this.deviceIndex = null;
+    this.playbackDeviceIndex = null;
+    logger.debug('Audio device cache invalidated');
+  }
+
   private switchAudioOutput(device: string): void {
     execSync(`SwitchAudioSource -s "${device}" -t output`, { stdio: 'pipe' });
     logger.debug(`Audio output → ${device}`);

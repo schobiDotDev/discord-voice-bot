@@ -1,7 +1,7 @@
 {
   "id": "discord-voice",
   "name": "Discord Voice Channel",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Discord voice channel integration for OpenClaw — bidirectional voice bridge with STT/TTS",
   "entry": "./index.ts",
   "configSchema": {
@@ -21,18 +21,12 @@
       "ownerId": {
         "type": "string",
         "description": "Discord user ID of the owner"
-      },
-      "dmCallServiceUrl": {
-        "type": "string",
-        "default": "http://localhost:8792",
-        "description": "DM-Call service API URL"
       }
     }
   },
   "uiHints": {
     "voiceBotUrl": { "label": "Voice Bot API URL", "placeholder": "http://localhost:8788" },
     "inboundPort": { "label": "Inbound Port", "placeholder": "8790" },
-    "ownerId": { "label": "Owner Discord User ID" },
-    "dmCallServiceUrl": { "label": "DM-Call Service URL", "placeholder": "http://localhost:8792" }
+    "ownerId": { "label": "Owner Discord User ID" }
   }
 }

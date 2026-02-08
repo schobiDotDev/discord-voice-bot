@@ -1,0 +1,55 @@
+{
+  "id": "voice-call",
+  "name": "Voice Call",
+  "version": "0.1.0",
+  "description": "Multi-turn voice call channel for OpenClaw — calls Discord users via DM and maintains a conversation loop",
+  "entry": "./index.ts",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dmCallServiceUrl": {
+        "type": "string",
+        "default": "http://localhost:8792",
+        "description": "DM-Call service API URL"
+      },
+      "inboundPort": {
+        "type": "number",
+        "default": 8791,
+        "description": "Port for inbound callback HTTP server"
+      },
+      "userId": {
+        "type": "string",
+        "description": "Discord user ID of the call target"
+      },
+      "dmChannelId": {
+        "type": "string",
+        "description": "Discord DM channel ID (from the URL, not the user ID)"
+      },
+      "agentResponseTimeout": {
+        "type": "number",
+        "default": 30000,
+        "description": "Max time (ms) to wait for agent response before hanging up"
+      },
+      "maxConversationTurns": {
+        "type": "number",
+        "default": 10,
+        "description": "Maximum conversation turns before auto-hangup"
+      },
+      "keepRecordings": {
+        "type": "boolean",
+        "default": false,
+        "description": "Keep audio recordings for debugging"
+      }
+    }
+  },
+  "uiHints": {
+    "dmCallServiceUrl": { "label": "DM-Call Service URL", "placeholder": "http://localhost:8792" },
+    "inboundPort": { "label": "Inbound Callback Port", "placeholder": "8791" },
+    "userId": { "label": "Discord User ID", "placeholder": "557884080620830720" },
+    "dmChannelId": { "label": "DM Channel ID", "placeholder": "1469647713690718354" },
+    "agentResponseTimeout": { "label": "Agent Response Timeout (ms)", "placeholder": "30000" },
+    "maxConversationTurns": { "label": "Max Conversation Turns", "placeholder": "10" },
+    "keepRecordings": { "label": "Keep Audio Recordings" }
+  }
+}

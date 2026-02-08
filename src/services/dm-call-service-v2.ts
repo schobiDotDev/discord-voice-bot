@@ -11,19 +11,34 @@ import type { TTSProvider } from '../providers/tts/interface.js';
 
 export interface CallRequest {
   userId: string;
+  dmChannelId: string;
   message: string;
   callbackUrl: string;
   channelId?: string;
+  maxTurns?: number;
+  agentResponseTimeout?: number;
+  keepRecordings?: boolean;
 }
 
-export interface CallResult {
+export interface AgentResponse {
+  text?: string;
+  hangup?: boolean;
+}
+
+export interface CallbackPayload {
+  type: 'transcription' | 'call_ended';
   callId: string;
-  status: 'completed' | 'no_answer' | 'failed';
-  transcription?: string;
-  duration?: number;
   userId: string;
   channel: string;
   channelId: string;
+  // transcription callback fields
+  transcription?: string;
+  turnCount?: number;
+  isSilence?: boolean;
+  // call_ended callback fields
+  status?: 'completed' | 'no_answer' | 'failed' | 'timeout' | 'max_turns';
+  duration?: number;
+  totalTurns?: number;
   error?: string;
 }
 
@@ -32,15 +47,20 @@ export interface ActiveCall {
   userId: string;
   callbackUrl: string;
   channelId: string;
-  status: 'connecting' | 'greeting' | 'recording' | 'transcribing' | 'responding';
+  status: 'connecting' | 'greeting' | 'recording' | 'transcribing' | 'waiting_for_agent' | 'responding' | 'disconnecting';
   startedAt: Date;
+  turnCount: number;
+  maxTurns: number;
+  agentResponseTimeout: number;
+  keepRecordings: boolean;
+  responseResolver: ((response: AgentResponse) => void) | null;
 }
 
 /**
- * Orchestrates Discord DM voice calls.
+ * Orchestrates Discord DM voice calls with multi-turn conversation.
  *
  * Coordinates DiscordBrowser (CDP), AudioBridge (BlackHole), STT, and TTS
- * to execute a full call lifecycle: connect → greet → record → transcribe → callback.
+ * to run a conversation loop: connect → greet → [record → transcribe → callback → wait → respond → repeat] → hangup.
  *
  * Only one call at a time (BlackHole is a system-wide resource).
  */
@@ -50,7 +70,7 @@ export class DmCallService {
   private audio: AudioBridge;
   private sttProvider: STTProvider;
   private ttsProvider: TTSProvider;
-  private completedCalls: Map<string, CallResult> = new Map();
+  private completedCalls: Map<string, CallbackPayload> = new Map();
 
   constructor() {
     this.browser = new DiscordBrowser();
@@ -67,13 +87,13 @@ export class DmCallService {
     return this.activeCall;
   }
 
-  getCallResult(callId: string): CallResult | undefined {
+  getCallResult(callId: string): CallbackPayload | undefined {
     return this.completedCalls.get(callId);
   }
 
   /**
    * Start a DM call. Returns callId immediately.
-   * Call runs in background, result delivered to callbackUrl.
+   * Call runs in background with conversation loop.
    */
   startCall(request: CallRequest): string {
     if (this.activeCall) {
@@ -88,10 +108,14 @@ export class DmCallService {
       channelId: request.channelId ?? 'dm-call',
       status: 'connecting',
       startedAt: new Date(),
+      turnCount: 0,
+      maxTurns: request.maxTurns ?? 10,
+      agentResponseTimeout: request.agentResponseTimeout ?? 30000,
+      keepRecordings: request.keepRecordings ?? false,
+      responseResolver: null,
     };
 
-    // Run call flow in background — don't await
-    this.executeCall(callId, request).catch((error) => {
+    this.executeConversationLoop(callId, request).catch((error) => {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error(`Call ${callId} unhandled error: ${msg}`);
     });
@@ -99,14 +123,47 @@ export class DmCallService {
     return callId;
   }
 
-  private async executeCall(callId: string, request: CallRequest): Promise<void> {
-    const result: CallResult = {
-      callId,
-      status: 'failed',
-      userId: request.userId,
-      channel: 'discord-voice',
-      channelId: request.channelId ?? 'dm-call',
-    };
+  /**
+   * Send a response to an active call that's waiting for agent input.
+   * Returns true if the response was accepted.
+   */
+  respondToCall(callId: string, response: AgentResponse): boolean {
+    if (!this.activeCall || this.activeCall.callId !== callId) {
+      return false;
+    }
+
+    if (!this.activeCall.responseResolver) {
+      return false;
+    }
+
+    this.activeCall.responseResolver(response);
+    this.activeCall.responseResolver = null;
+    return true;
+  }
+
+  /**
+   * Force-hangup an active call.
+   */
+  hangupCall(callId: string): boolean {
+    if (!this.activeCall || this.activeCall.callId !== callId) {
+      return false;
+    }
+
+    // If waiting for agent, resolve with hangup
+    if (this.activeCall.responseResolver) {
+      this.activeCall.responseResolver({ hangup: true });
+      this.activeCall.responseResolver = null;
+      return true;
+    }
+
+    // Otherwise set status so the loop breaks on next iteration
+    this.activeCall.status = 'disconnecting';
+    return true;
+  }
+
+  private async executeConversationLoop(callId: string, request: CallRequest): Promise<void> {
+    let endStatus: CallbackPayload['status'] = 'failed';
+    let endError: string | undefined;
 
     try {
       // Phase 0: Prepare audio routing
@@ -115,14 +172,13 @@ export class DmCallService {
       // Phase 1: Connect
       this.updateStatus(callId, 'connecting');
       await this.browser.connect();
-      await this.browser.navigateToDM(request.userId);
+      await this.browser.navigateToDM(request.dmChannelId);
       await this.browser.startCall();
 
       const connected = await this.browser.waitForConnection();
       if (!connected) {
-        result.status = 'no_answer';
+        endStatus = 'no_answer';
         await this.browser.hangup().catch(() => {});
-        await this.sendCallback(request.callbackUrl, result);
         return;
       }
 
@@ -133,56 +189,183 @@ export class DmCallService {
       this.updateStatus(callId, 'greeting');
       const ttsAudio = await this.ttsProvider.synthesize(request.message);
       await this.audio.playToDiscord(ttsAudio);
-      await sleep(1000); // Pause after speaking before recording
+      await sleep(1000);
 
-      // Phase 3: Record with silence detection
-      this.updateStatus(callId, 'recording');
-      const audioFile = await this.recordWithSilenceDetection();
+      // Phase 3: Conversation loop
+      let consecutiveSilence = 0;
 
-      // Phase 4: Transcribe (still connected!)
-      this.updateStatus(callId, 'transcribing');
-      const transcription = await this.sttProvider.transcribe(audioFile, config.language);
-      // Keep recording for debugging — don't cleanup
-      logger.info(`Recording kept: ${audioFile}`);
+      while (this.activeCall?.callId === callId && this.activeCall.status !== 'disconnecting') {
+        const call = this.activeCall;
 
-      // Phase 5: Respond via TTS if we got real speech
-      if (transcription && !isWhisperHallucination(transcription)) {
-        this.updateStatus(callId, 'responding');
-        const responseText = `Du hast gesagt: ${transcription}`;
-        const responseTts = await this.ttsProvider.synthesize(responseText);
-        await this.audio.playToDiscord(responseTts);
-        await sleep(3000); // Let user hear the full response
+        // Check max turns
+        if (call.turnCount >= call.maxTurns) {
+          logger.info(`Call ${callId} reached max turns (${call.maxTurns})`);
+          endStatus = 'max_turns';
+          await this.playGoodbye('Die maximale Gesprächsdauer wurde erreicht. Auf Wiedersehen!');
+          break;
+        }
+
+        // Record (with one retry on audio device error)
+        this.updateStatus(callId, 'recording');
+        let audioFile: string;
+        try {
+          audioFile = await this.recordWithSilenceDetection();
+        } catch (recordErr) {
+          logger.warn(`Recording failed, invalidating device cache and retrying: ${recordErr}`);
+          this.audio.invalidateDeviceCache();
+          audioFile = await this.recordWithSilenceDetection();
+        }
+
+        // Transcribe
+        this.updateStatus(callId, 'transcribing');
+        const transcription = await this.sttProvider.transcribe(audioFile, config.language);
+
+        if (!call.keepRecordings) {
+          this.audio.cleanup(audioFile);
+        } else {
+          logger.info(`Recording kept: ${audioFile}`);
+        }
+
+        call.turnCount++;
+        const isSilence = !transcription || isWhisperHallucination(transcription);
+
+        if (isSilence) {
+          consecutiveSilence++;
+          logger.debug(`Silent turn ${consecutiveSilence} (turn ${call.turnCount})`);
+        } else {
+          consecutiveSilence = 0;
+          logger.info(`Turn ${call.turnCount}: "${transcription.substring(0, 80)}"`);
+        }
+
+        // Send transcription callback to agent
+        await this.sendCallback(call.callbackUrl, {
+          type: 'transcription',
+          callId,
+          userId: call.userId,
+          channel: 'voice-call',
+          channelId: call.channelId,
+          transcription: isSilence ? '' : transcription,
+          turnCount: call.turnCount,
+          isSilence,
+        });
+
+        // Wait for agent response
+        this.updateStatus(callId, 'waiting_for_agent');
+        const agentResponse = await this.waitForAgentResponse(callId, call.agentResponseTimeout);
+
+        if (!agentResponse) {
+          // Timeout — agent didn't respond
+          logger.warn(`Call ${callId} agent response timeout`);
+          endStatus = 'timeout';
+          await this.playGoodbye('Auf Wiedersehen!');
+          break;
+        }
+
+        if (agentResponse.hangup) {
+          endStatus = 'completed';
+          if (agentResponse.text) {
+            await this.playGoodbye(agentResponse.text);
+          }
+          break;
+        }
+
+        // Play agent's response via TTS
+        if (agentResponse.text) {
+          this.updateStatus(callId, 'responding');
+          const responseTts = await this.ttsProvider.synthesize(agentResponse.text);
+          try {
+            await this.audio.playToDiscord(responseTts);
+          } catch (playErr) {
+            logger.warn(`Playback failed, invalidating device cache and retrying: ${playErr}`);
+            this.audio.invalidateDeviceCache();
+            await this.audio.playToDiscord(responseTts);
+          }
+          await sleep(500);
+        }
+
+        // Loop continues → record next turn
       }
 
-      // Phase 6: Hang up
-      await this.browser.hangup();
-      this.audio.restoreAudio();
-
-      result.status = 'completed';
-      result.transcription = transcription;
-      result.duration = (Date.now() - this.activeCall!.startedAt.getTime()) / 1000;
-
-      logger.info(`Call ${callId} completed`, {
-        duration: result.duration,
-        transcription: transcription.substring(0, 100),
-      });
-
-      await this.sendCallback(request.callbackUrl, result);
+      if (endStatus === 'failed') {
+        // Normal exit without explicit status means completed
+        endStatus = 'completed';
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error(`Call ${callId} error: ${msg}`);
-      result.status = 'failed';
-      result.error = msg;
+      endStatus = 'failed';
+      endError = msg;
 
       try { await this.browser.hangup(); } catch {}
       this.audio.restoreAudio();
       this.browser.disconnect();
-
-      await this.sendCallback(request.callbackUrl, result);
     } finally {
-      this.completedCalls.set(callId, result);
-      this.activeCall = null;
+      // Ensure cleanup
+      try { await this.browser.hangup(); } catch {}
+      this.audio.restoreAudio();
       this.browser.disconnect();
+
+      const duration = this.activeCall
+        ? (Date.now() - this.activeCall.startedAt.getTime()) / 1000
+        : 0;
+
+      const endPayload: CallbackPayload = {
+        type: 'call_ended',
+        callId,
+        userId: request.userId,
+        channel: 'voice-call',
+        channelId: request.channelId ?? 'dm-call',
+        status: endStatus,
+        duration,
+        totalTurns: this.activeCall?.turnCount ?? 0,
+        error: endError,
+      };
+
+      logger.info(`Call ${callId} ended: ${endStatus}`, { duration, turns: endPayload.totalTurns });
+
+      this.completedCalls.set(callId, endPayload);
+      this.activeCall = null;
+
+      await this.sendCallback(request.callbackUrl, endPayload);
+    }
+  }
+
+  /**
+   * Wait for the agent to respond via respondToCall().
+   * Returns null on timeout.
+   */
+  private waitForAgentResponse(callId: string, timeoutMs: number): Promise<AgentResponse | null> {
+    return new Promise((resolve) => {
+      if (!this.activeCall || this.activeCall.callId !== callId) {
+        resolve(null);
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        if (this.activeCall?.responseResolver) {
+          this.activeCall.responseResolver = null;
+        }
+        resolve(null);
+      }, timeoutMs);
+
+      this.activeCall.responseResolver = (response: AgentResponse) => {
+        clearTimeout(timer);
+        resolve(response);
+      };
+    });
+  }
+
+  /**
+   * Play a goodbye message via TTS, then disconnect.
+   */
+  private async playGoodbye(text: string): Promise<void> {
+    try {
+      this.updateStatus(this.activeCall!.callId, 'disconnecting');
+      const ttsAudio = await this.ttsProvider.synthesize(text);
+      await this.audio.playToDiscord(ttsAudio);
+      await sleep(1500);
+    } catch (error) {
+      logger.warn(`Goodbye TTS failed: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -199,8 +382,6 @@ export class DmCallService {
       const silenceDuration = config.dmCall.silenceTimeout;
       const maxDuration = config.dmCall.timeout;
 
-      // Use ffmpeg with silencedetect filter
-      // This records audio AND detects silence in one pass
       const proc = spawn('ffmpeg', [
         '-y',
         '-f', 'avfoundation',
@@ -214,35 +395,26 @@ export class DmCallService {
 
       let speechDetected = false;
       let silenceAfterSpeech = false;
-      let stderrBuffer = '';
 
       proc.stderr?.on('data', (data: Buffer) => {
         const text = data.toString();
-        stderrBuffer += text;
 
-        // silence_end means speech just started
         if (text.includes('silence_end')) {
           speechDetected = true;
           logger.debug('Speech detected');
         }
 
-        // silence_start after speech means user stopped talking
         if (speechDetected && text.includes('silence_start')) {
           silenceAfterSpeech = true;
-          logger.info('Silence after speech detected — stopping recording');
-          // Give a tiny buffer then stop
-          setTimeout(() => {
-            proc.kill('SIGTERM');
-          }, 300);
+          logger.info('Silence after speech — stopping recording');
+          setTimeout(() => proc.kill('SIGTERM'), 300);
         }
       });
 
       proc.on('close', (code) => {
         if (silenceAfterSpeech || code === 0) {
-          logger.debug(`Recording complete (speech: ${speechDetected}, silence-stop: ${silenceAfterSpeech})`);
           resolve(outFile);
         } else if (!speechDetected) {
-          // No speech at all — max timeout or killed
           logger.warn('No speech detected during recording');
           resolve(outFile);
         } else {
@@ -256,10 +428,6 @@ export class DmCallService {
     });
   }
 
-  /**
-   * Get the avfoundation device index for recording.
-   * Uses the same detection as AudioBridge.
-   */
   private async getRecordDeviceIndex(): Promise<number> {
     const { execSync } = await import('node:child_process');
     const device = config.dmCall.blackholeOutput;
@@ -301,17 +469,17 @@ export class DmCallService {
     }
   }
 
-  private async sendCallback(url: string, result: CallResult): Promise<void> {
+  private async sendCallback(url: string, payload: CallbackPayload): Promise<void> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(result),
+          body: JSON.stringify(payload),
         });
 
         if (res.ok) {
-          logger.info(`Callback sent to ${url}`, { callId: result.callId, status: result.status });
+          logger.info(`Callback sent (${payload.type})`, { callId: payload.callId });
           return;
         }
 
@@ -327,6 +495,10 @@ export class DmCallService {
 
   async dispose(): Promise<void> {
     if (this.activeCall) {
+      // Resolve any pending waiter so the loop can exit
+      if (this.activeCall.responseResolver) {
+        this.activeCall.responseResolver({ hangup: true });
+      }
       try { await this.browser.hangup(); } catch {}
       this.audio.restoreAudio();
     }

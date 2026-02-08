@@ -56,10 +56,6 @@ const plugin = {
       ownerId: {
         type: "string" as const,
       },
-      dmCallServiceUrl: {
-        type: "string" as const,
-        default: "http://localhost:8792",
-      },
     },
   },
   register(pluginApi: OpenClawPluginApi) {
@@ -69,7 +65,6 @@ const plugin = {
       pluginApi.config?.plugins?.entries?.["discord-voice"]?.config ?? {};
     const voiceBotUrl = (config as any).voiceBotUrl ?? "http://localhost:8788";
     const inboundPort = (config as any).inboundPort ?? 8790;
-    const dmCallServiceUrl = (config as any).dmCallServiceUrl ?? "http://localhost:8792";
 
     // ── Register Channel (outbound: agent → voice bot) ──
     pluginApi.registerChannel({
@@ -116,67 +111,6 @@ const plugin = {
               return { ok: res.ok };
             } catch (err) {
               console.error(`[discord-voice] Speak failed: ${err}`);
-              return { ok: false };
-            }
-          },
-        },
-      },
-    });
-
-    // ── Register DM-Call Channel (outbound: agent → dm-call service) ──
-    pluginApi.registerChannel({
-      plugin: {
-        id: "discord-dm-call",
-        meta: {
-          id: "discord-dm-call",
-          label: "Discord DM Call",
-          selectionLabel: "Discord DM Voice Call",
-          docsPath: "/channels/discord-dm-call",
-          blurb: "Call Discord users via DM voice call.",
-          aliases: ["dm-call", "call"],
-        },
-        capabilities: {
-          chatTypes: ["direct"] as const,
-        },
-        config: {
-          listAccountIds: () => ["default"],
-          resolveAccount: (_cfg: any, accountId?: string) => ({
-            accountId: accountId ?? "default",
-            enabled: true,
-          }),
-        },
-        outbound: {
-          deliveryMode: "direct" as const,
-          sendText: async (opts: { text: string; context?: any }) => {
-            const cleanText = opts.text
-              .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-              .replace(/[*_~`#]/g, "")
-              .replace(/\n{3,}/g, "\n\n")
-              .replace(/NO_REPLY/g, "")
-              .trim();
-
-            if (!cleanText) return { ok: true };
-
-            try {
-              const res = await fetch(`${dmCallServiceUrl}/call`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  userId: opts.context?.userId,
-                  message: cleanText,
-                  callbackUrl: `http://127.0.0.1:${inboundPort}/inbound`,
-                  channelId: "dm-call",
-                }),
-              });
-
-              if (res.status === 409) {
-                console.log("[discord-dm-call] Call already in progress");
-                return { ok: false };
-              }
-
-              return { ok: res.ok };
-            } catch (err) {
-              console.error(`[discord-dm-call] Call failed: ${err}`);
               return { ok: false };
             }
           },

@@ -12,5 +12,5 @@ export type { MemoryMessage, MessageRole } from './conversation-memory.js';
 export { OpenClawBridgeService } from './openclaw-bridge.js';
 export { BotApiServer } from './bot-api-server.js';
 export { DmCallService } from './dm-call-service-v2.js';
-export type { CallRequest, CallResult, ActiveCall } from './dm-call-service-v2.js';
+export type { CallRequest, CallbackPayload, AgentResponse, ActiveCall } from './dm-call-service-v2.js';
 export { DmCallApi } from './dm-call-api.js';

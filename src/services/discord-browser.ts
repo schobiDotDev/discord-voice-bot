@@ -66,18 +66,21 @@ export class DiscordBrowser {
     }
   }
 
-  /** Navigate to a user's DM channel */
-  async navigateToDM(userId: string): Promise<void> {
-    // Check if already on the right page
+  /**
+   * Navigate to a user's DM channel.
+   * @param dmChannelId Discord DM channel ID (from the URL, not the user ID)
+   */
+  async navigateToDM(dmChannelId: string): Promise<void> {
+    const targetPath = `channels/@me/${dmChannelId}`;
     const currentUrl = await this.eval('window.location.href') as string;
-    if (currentUrl?.includes(`channels/@me`)) {
-      logger.debug('Already on DM page');
+    if (currentUrl?.includes(targetPath)) {
+      logger.debug('Already on correct DM page');
+      return;
     }
 
-    // Navigate to DM — Discord auto-resolves userId to DM channel
-    await this.eval(`window.location.href = 'https://discord.com/channels/@me/${userId}'`);
+    await this.eval(`window.location.href = 'https://discord.com/${targetPath}'`);
     await sleep(2500);
-    logger.info(`Navigated to DM with user ${userId}`);
+    logger.info(`Navigated to DM channel ${dmChannelId}`);
   }
 
   /** Click "Start Voice Call" button */

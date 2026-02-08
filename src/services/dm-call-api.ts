@@ -50,15 +50,19 @@ export class DmCallApi {
     });
 
     this.app.post('/call', (req: Request, res: Response) => {
-      const { userId, message, callbackUrl, channelId } = req.body as {
+      const { userId, dmChannelId, message, callbackUrl, channelId, maxTurns, agentResponseTimeout, keepRecordings } = req.body as {
         userId?: string;
+        dmChannelId?: string;
         message?: string;
         callbackUrl?: string;
         channelId?: string;
+        maxTurns?: number;
+        agentResponseTimeout?: number;
+        keepRecordings?: boolean;
       };
 
-      if (!userId || !message || !callbackUrl) {
-        res.status(400).json({ error: 'userId, message, and callbackUrl are required' });
+      if (!userId || !dmChannelId || !message || !callbackUrl) {
+        res.status(400).json({ error: 'userId, dmChannelId, message, and callbackUrl are required' });
         return;
       }
 
@@ -71,7 +75,10 @@ export class DmCallApi {
       }
 
       try {
-        const callId = this.callService.startCall({ userId, message, callbackUrl, channelId });
+        const callId = this.callService.startCall({
+          userId, dmChannelId, message, callbackUrl, channelId,
+          maxTurns, agentResponseTimeout, keepRecordings,
+        });
         res.status(202).json({ callId, status: 'calling' });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -90,6 +97,7 @@ export class DmCallApi {
           callId,
           status: active.status,
           userId: active.userId,
+          turnCount: active.turnCount,
           startedAt: active.startedAt.toISOString(),
         });
         return;
@@ -103,6 +111,34 @@ export class DmCallApi {
       }
 
       res.status(404).json({ error: 'Call not found' });
+    });
+
+    this.app.post('/call/:callId/respond', (req: Request<{ callId: string }>, res: Response) => {
+      const { callId } = req.params;
+      const { text, hangup } = req.body as { text?: string; hangup?: boolean };
+
+      if (!text && !hangup) {
+        res.status(400).json({ error: 'text or hangup is required' });
+        return;
+      }
+
+      const accepted = this.callService.respondToCall(callId, { text, hangup });
+      if (accepted) {
+        res.json({ ok: true });
+      } else {
+        res.status(409).json({ error: 'Call not waiting for response' });
+      }
+    });
+
+    this.app.post('/call/:callId/hangup', (req: Request<{ callId: string }>, res: Response) => {
+      const { callId } = req.params;
+
+      const accepted = this.callService.hangupCall(callId);
+      if (accepted) {
+        res.json({ ok: true });
+      } else {
+        res.status(404).json({ error: 'Call not found or already ended' });
+      }
     });
   }
 }
