@@ -6,6 +6,8 @@ import type { CallManager, CallState } from '../modes/browser/call-manager.js';
 
 export interface ApiServerConfig {
   port: number;
+  sttProvider?: string;
+  ttsProvider?: string;
 }
 
 /**
@@ -30,6 +32,7 @@ export class ApiServer {
   private wss: WebSocketServer | null = null;
   private callManager: CallManager;
   private config: ApiServerConfig;
+  private startTime: Date = new Date();
 
   constructor(callManager: CallManager, config: ApiServerConfig) {
     this.callManager = callManager;
@@ -110,7 +113,29 @@ export class ApiServer {
   private setupRoutes(): void {
     // Health check
     this.app.get('/health', (_req: Request, res: Response) => {
-      res.json({ status: 'ok' });
+      const uptime = Date.now() - this.startTime.getTime();
+      const uptimeSeconds = Math.floor(uptime / 1000);
+      const uptimeMinutes = Math.floor(uptimeSeconds / 60);
+      const uptimeHours = Math.floor(uptimeMinutes / 60);
+
+      const uptimeFormatted = `${uptimeHours}h ${uptimeMinutes % 60}m ${uptimeSeconds % 60}s`;
+
+      res.json({
+        status: 'ok',
+        uptime: {
+          ms: uptime,
+          formatted: uptimeFormatted,
+        },
+        bot: {
+          state: this.callManager.getState(),
+          mode: 'browser',
+        },
+        providers: {
+          stt: this.config.sttProvider || 'unknown',
+          tts: this.config.ttsProvider || 'unknown',
+        },
+        timestamp: new Date().toISOString(),
+      });
     });
 
     // Get current status
@@ -122,9 +147,10 @@ export class ApiServer {
     });
 
     // Start listening (new main endpoint)
-    this.app.post('/call/start', async (_req: Request, res: Response) => {
+    this.app.post('/call/start', async (req: Request, res: Response) => {
       try {
-        const success = await this.callManager.startCall();
+        const { greeting } = req.body as { greeting?: string };
+        const success = await this.callManager.startCall(undefined, greeting);
         if (success) {
           res.json({ status: 'started', state: this.callManager.getState() });
         } else {
