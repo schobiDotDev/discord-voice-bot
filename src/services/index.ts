@@ -9,3 +9,5 @@ export { ResponseQueue } from './response-queue.js';
 export type { VoiceMode } from './voice-assistant.js';
 export type { QueuedResponse } from './response-queue.js';
 export type { MemoryMessage, MessageRole } from './conversation-memory.js';
+export { OpenClawBridgeService } from './openclaw-bridge.js';
+export { BotApiServer } from './bot-api-server.js';
