@@ -1,5 +1,6 @@
 # Discord Voice Bot
 
+[![CI](https://github.com/schobiDotDev/discord-voice-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/schobiDotDev/discord-voice-bot/actions/workflows/ci.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Discord.js](https://img.shields.io/badge/discord.js-v14-5865F2.svg)](https://discord.js.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
