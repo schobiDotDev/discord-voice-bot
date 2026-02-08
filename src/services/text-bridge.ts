@@ -125,6 +125,23 @@ export class TextBridgeService extends EventEmitter {
   }
 
   /**
+   * Log a message to the text channel (fire-and-forget, no response waiting)
+   */
+  async log(message: string): Promise<void> {
+    if (!this.textChannel) {
+      logger.warn('Text bridge not initialized, cannot log');
+      return;
+    }
+
+    try {
+      await this.textChannel.send(message);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to log to text channel: ${msg}`);
+    }
+  }
+
+  /**
    * Cancel a pending request (e.g., user interrupted)
    */
   cancelPendingRequest(userId: string): void {
