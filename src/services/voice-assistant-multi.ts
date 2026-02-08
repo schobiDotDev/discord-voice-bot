@@ -10,6 +10,8 @@ import type { STTProvider } from '../providers/stt/index.js';
 import type { TTSProvider } from '../providers/tts/index.js';
 import type { WakeWordProvider } from '../providers/wakeword/index.js';
 import { ConversationService } from './conversation.js';
+import { OpenClawBridgeService } from './openclaw-bridge.js';
+import type { TextBridgeService } from './text-bridge.js';
 import { ResponseQueue, type QueuedResponse } from './response-queue.js';
 
 export type VoiceMode = 'normal' | 'silent' | 'free';
@@ -40,6 +42,8 @@ export class VoiceAssistantMulti {
   private ttsProvider: TTSProvider;
   private wakeWordProvider: WakeWordProvider | null;
   private conversationService: ConversationService;
+  private openclawBridge: OpenClawBridgeService | null;
+  private textBridge: TextBridgeService | null;
   private guildStates: Map<string, GuildState> = new Map();
   private ignorePhrases = ['Thank you.', 'Bye.', 'Thanks for watching.'];
 
@@ -47,12 +51,16 @@ export class VoiceAssistantMulti {
     sttProvider: STTProvider,
     ttsProvider: TTSProvider,
     conversationService: ConversationService,
-    wakeWordProvider: WakeWordProvider | null = null
+    wakeWordProvider: WakeWordProvider | null = null,
+    openclawBridge: OpenClawBridgeService | null = null,
+    textBridge: TextBridgeService | null = null
   ) {
     this.sttProvider = sttProvider;
     this.ttsProvider = ttsProvider;
     this.wakeWordProvider = wakeWordProvider;
     this.conversationService = conversationService;
+    this.openclawBridge = openclawBridge;
+    this.textBridge = textBridge;
 
     // Set up TTS provider for voice player
     voicePlayer.setTTSProvider(this.ttsProvider);
@@ -416,28 +424,48 @@ export class VoiceAssistantMulti {
       // Play confirmation sound
       await this.playConfirmation(guildState);
 
-      // Post to text channel and wait for response
-      const response = await this.conversationService.chat(userId, cleanedText, durationSeconds);
+      if (this.openclawBridge) {
+        // ── OpenClaw Bridge Mode ──
+        // Send to OpenClaw (fire-and-forget, response comes via /speak)
+        this.openclawBridge.sendTranscription({
+          text: cleanedText,
+          userId,
+          userName: session.username,
+          channelId: guildState.channel.id,
+          guildId: guildId!,
+        }).catch(() => {});
 
-      session.isProcessing = false;
+        // Log to text channel (fire-and-forget)
+        if (this.textBridge) {
+          this.textBridge.log(`🎤 **${session.username}:** ${cleanedText}`).catch(() => {});
+        }
 
-      if (!response) {
+        // Not waiting for response — it arrives async via /speak
+        session.isProcessing = false;
         voiceRecorder.restartRecording(guildState.connection, userId);
-        return;
+      } else {
+        // ── Original TextBridge Mode ──
+        const response = await this.conversationService.chat(userId, cleanedText, durationSeconds);
+
+        session.isProcessing = false;
+
+        if (!response) {
+          voiceRecorder.restartRecording(guildState.connection, userId);
+          return;
+        }
+
+        // Queue the response
+        const queuedResponse: QueuedResponse = {
+          userId,
+          username: session.username,
+          text: response,
+          timestamp: Date.now(),
+          priority: 0,
+        };
+
+        guildState.responseQueue.enqueue(queuedResponse);
+        voiceRecorder.restartRecording(guildState.connection, userId);
       }
-
-      // Queue the response
-      const queuedResponse: QueuedResponse = {
-        userId,
-        username: session.username,
-        text: response,
-        timestamp: Date.now(),
-        priority: 0, // Can be adjusted based on interrupts, etc.
-      };
-
-      guildState.responseQueue.enqueue(queuedResponse);
-
-      voiceRecorder.restartRecording(guildState.connection, userId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error(`Voice processing error: ${message}`, { userId, guildId });
