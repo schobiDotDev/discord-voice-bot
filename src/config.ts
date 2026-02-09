@@ -27,14 +27,26 @@ const configSchema = z.object({
 
   // Text Bridge (for external bot integration)
   textBridge: z.object({
-    channelId: z.string().min(1, 'TEXT_CHANNEL_ID is required'),
-    responderBotId: z.string().min(1, 'RESPONDER_BOT_ID is required'),
+    channelId: z.string().optional(),
+    responderBotId: z.string().optional(),
     responseTimeout: z.number().int().positive().default(30000),
   }),
 
   // OpenClaw bridge (optional — when set, transcriptions route to OpenClaw)
   openclawBridge: z.object({
     url: z.string().url().optional(),
+  }).default({}),
+
+  // DM-Call service (standalone process for Discord DM voice calls via CDP)
+  dmCall: z.object({
+    port: z.number().int().positive().default(8792),
+    cdpUrl: z.string().default('ws://localhost:9222'),
+    blackholeInput: z.string().default('BlackHole 2ch'),
+    blackholeOutput: z.string().default('BlackHole 16ch'),
+    systemAudioDevice: z.string().default('MacBook Air-Lautsprecher'),
+    timeout: z.number().int().positive().default(60),
+    silenceTimeout: z.number().positive().default(1.5),
+    connectTimeout: z.number().int().positive().default(20000),
   }).default({}),
 
   // STT
@@ -126,12 +138,22 @@ function parseConfig(): Config {
           .filter(Boolean) ?? [],
     },
     textBridge: {
-      channelId: process.env.TEXT_CHANNEL_ID ?? '',
-      responderBotId: process.env.RESPONDER_BOT_ID ?? '',
+      channelId: process.env.TEXT_CHANNEL_ID || undefined,
+      responderBotId: process.env.RESPONDER_BOT_ID || undefined,
       responseTimeout: parseInt(process.env.RESPONSE_TIMEOUT ?? '30000', 10),
     },
     openclawBridge: {
       url: process.env.OPENCLAW_BRIDGE_URL || undefined,
+    },
+    dmCall: {
+      port: parseInt(process.env.DM_CALL_PORT ?? '8792', 10),
+      cdpUrl: process.env.CDP_URL ?? 'ws://localhost:9222',
+      blackholeInput: process.env.BLACKHOLE_INPUT ?? process.env.AUDIO_OUTPUT_DEVICE ?? 'BlackHole 2ch',
+      blackholeOutput: process.env.BLACKHOLE_OUTPUT ?? process.env.AUDIO_INPUT_DEVICE ?? 'BlackHole 16ch',
+      systemAudioDevice: process.env.AUDIO_SYSTEM_DEVICE ?? 'MacBook Air-Lautsprecher',
+      timeout: parseInt(process.env.DM_CALL_TIMEOUT ?? '60', 10),
+      silenceTimeout: parseFloat(process.env.DM_CALL_SILENCE ?? '1.5'),
+      connectTimeout: parseInt(process.env.DM_CALL_CONNECT_TIMEOUT ?? '20000', 10),
     },
     stt: {
       provider: process.env.STT_PROVIDER ?? 'whisper-api',

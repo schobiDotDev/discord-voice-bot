@@ -49,6 +49,7 @@ export class ConversationService {
       username,
       transcription: transcriptionWithContext,
       durationSeconds,
+      conversationContext: historyContext,
     };
 
     try {
@@ -71,11 +72,18 @@ export class ConversationService {
   }
 
   /**
-   * Clear conversation memory for a user
+   * Get conversation memory for a user
    */
-  clearMemory(userId: string): void {
+  getHistory(userId: string) {
+    return this.memory.getHistory(userId);
+  }
+
+  /**
+   * Clear conversation history for a user
+   */
+  clearHistory(userId: string): void {
     this.memory.clearHistory(userId);
-    logger.info(`Cleared conversation memory for user ${userId}`);
+    logger.info(`Cleared conversation history for user ${userId}`);
   }
 
   /**

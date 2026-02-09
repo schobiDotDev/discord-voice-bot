@@ -13,6 +13,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
+    "dm-call": "tsx src/dm-call-main.ts",
+    "dm-call:dev": "tsx watch src/dm-call-main.ts",
     "prepare": "npm run build"
   },
   "keywords": [

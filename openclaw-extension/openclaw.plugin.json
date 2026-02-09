@@ -1,8 +1,8 @@
 {
   "id": "discord-voice",
   "name": "Discord Voice Channel",
-  "version": "0.1.0",
-  "description": "Discord DM voice calls via BlackHole audio routing — bidirectional voice channel for OpenClaw",
+  "version": "0.4.0",
+  "description": "Discord voice channel integration for OpenClaw — bidirectional voice bridge with STT/TTS",
   "entry": "./index.ts",
   "configSchema": {
     "type": "object",
@@ -13,14 +13,20 @@
         "default": "http://localhost:8788",
         "description": "Voice bot API server URL"
       },
+      "inboundPort": {
+        "type": "number",
+        "default": 8790,
+        "description": "Port for inbound transcription HTTP server"
+      },
       "ownerId": {
         "type": "string",
-        "description": "Discord user ID of the owner (Felix)"
+        "description": "Discord user ID of the owner"
       }
     }
   },
   "uiHints": {
     "voiceBotUrl": { "label": "Voice Bot API URL", "placeholder": "http://localhost:8788" },
+    "inboundPort": { "label": "Inbound Port", "placeholder": "8790" },
     "ownerId": { "label": "Owner Discord User ID" }
   }
 }

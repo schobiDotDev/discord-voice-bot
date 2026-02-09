@@ -17,6 +17,7 @@ export interface TranscriptionMetadata {
   username: string;
   transcription: string;
   durationSeconds: number;
+  conversationContext?: string;
 }
 
 /**
@@ -44,7 +45,8 @@ export class TextBridgeService extends EventEmitter {
 
     const channelId = config.textBridge.channelId;
     if (!channelId) {
-      throw new Error('TEXT_CHANNEL_ID is not configured');
+      logger.info('TEXT_CHANNEL_ID not set, text bridge logging disabled');
+      return;
     }
 
     const channel = await this.client.channels.fetch(channelId);
@@ -67,10 +69,17 @@ export class TextBridgeService extends EventEmitter {
    * Format a transcription message with user metadata
    */
   private formatTranscriptionMessage(metadata: TranscriptionMetadata): string {
-    const { userId, username, transcription, durationSeconds } = metadata;
+    const { userId, username, transcription, durationSeconds, conversationContext } = metadata;
     const duration = durationSeconds.toFixed(1);
 
-    return `🎤 **${username}** (ID: ${userId}) | Dauer: ${duration}s\n> ${transcription}`;
+    let message = `🎤 **${username}** (ID: ${userId}) | Dauer: ${duration}s\n> ${transcription}`;
+
+    // Add conversation context if available
+    if (conversationContext) {
+      message += `\n\n${conversationContext}`;
+    }
+
+    return message;
   }
 
   /**
@@ -117,6 +126,23 @@ export class TextBridgeService extends EventEmitter {
   }
 
   /**
+   * Log a message to the text channel (fire-and-forget, no response waiting)
+   */
+  async log(message: string): Promise<void> {
+    if (!this.textChannel) {
+      logger.warn('Text bridge not initialized, cannot log');
+      return;
+    }
+
+    try {
+      await this.textChannel.send(message);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to log to text channel: ${msg}`);
+    }
+  }
+
+  /**
    * Cancel a pending request (e.g., user interrupted)
    */
   cancelPendingRequest(userId: string): void {
@@ -147,6 +173,7 @@ export class TextBridgeService extends EventEmitter {
   }
 
   private setupMessageListener(): void {
+    if (!config.textBridge.responderBotId) return;
     this.client.on(Events.MessageCreate, (message: Message) => {
       this.handleMessage(message);
     });

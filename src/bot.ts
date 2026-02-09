@@ -6,7 +6,7 @@ import { voiceConnectionManager } from './voice/index.js';
 import { createSTTProvider } from './providers/stt/index.js';
 import { createTTSProvider } from './providers/tts/index.js';
 import { createWakeWordProvider } from './providers/wakeword/index.js';
-import { TextBridgeService, ConversationService, VoiceAssistant } from './services/index.js';
+import { TextBridgeService, ConversationService, VoiceAssistantMulti, OpenClawBridgeService, BotApiServer } from './services/index.js';
 import { registerCommands, handleCommand, type CommandContext } from './commands/index.js';
 
 /**
@@ -16,9 +16,11 @@ import { registerCommands, handleCommand, type CommandContext } from './commands
 export class Bot {
   private client: Client;
   private textBridge: TextBridgeService;
-  private voiceAssistant: VoiceAssistant;
+  private voiceAssistant: VoiceAssistantMulti;
   private conversationService: ConversationService;
   private wakeWordProvider: ReturnType<typeof createWakeWordProvider>;
+  private openclawBridge: OpenClawBridgeService | null = null;
+  private botApiServer: BotApiServer | null = null;
 
   constructor() {
     this.client = new Client({
@@ -35,17 +37,30 @@ export class Bot {
     const ttsProvider = createTTSProvider();
     this.wakeWordProvider = createWakeWordProvider();
 
+    // Initialize OpenClaw bridge if configured
+    const bridgeUrl = config.openclawBridge.url;
+    if (bridgeUrl) {
+      this.openclawBridge = new OpenClawBridgeService(bridgeUrl);
+    }
+
     // Initialize text bridge (needs client for Discord message handling)
     this.textBridge = new TextBridgeService(this.client);
 
     // Initialize services
     this.conversationService = new ConversationService(this.textBridge);
-    this.voiceAssistant = new VoiceAssistant(
+    this.voiceAssistant = new VoiceAssistantMulti(
       sttProvider,
       ttsProvider,
       this.conversationService,
-      this.wakeWordProvider
+      this.wakeWordProvider,
+      this.openclawBridge,
+      this.textBridge
     );
+
+    // API server for OpenClaw (accepts /speak)
+    if (this.openclawBridge) {
+      this.botApiServer = new BotApiServer(config.api.port, this.textBridge);
+    }
 
     this.setupEventHandlers();
   }
@@ -68,6 +83,11 @@ export class Bot {
     // Register slash commands
     await registerCommands();
 
+    // Start API server if OpenClaw bridge is configured
+    if (this.botApiServer) {
+      await this.botApiServer.start();
+    }
+
     // Login to Discord
     logger.info('Logging in to Discord...');
     await this.client.login(config.discord.token);
@@ -81,6 +101,11 @@ export class Bot {
 
     // Cancel all pending text bridge requests
     this.conversationService.cancelAll();
+
+    // Stop API server
+    if (this.botApiServer) {
+      await this.botApiServer.stop();
+    }
 
     // Destroy all voice connections
     voiceConnectionManager.destroyAll();
@@ -117,7 +142,9 @@ export class Bot {
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
           logger.error(`Failed to initialize text bridge: ${message}`);
-          process.exit(1);
+          if (!config.openclawBridge.url) {
+            process.exit(1);
+          }
         });
     });
 
