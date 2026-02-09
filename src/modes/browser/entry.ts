@@ -146,7 +146,13 @@ export async function startBrowserMode(): Promise<void> {
   }
 
   // API server
-  const apiServer = new ApiServer(callManager, { port: apiPort });
+  const sttProviderName = process.env.STT_PROVIDER ?? 'whisper-api';
+  const ttsProviderName = process.env.TTS_PROVIDER ?? 'openai';
+  const apiServer = new ApiServer(callManager, {
+    port: apiPort,
+    sttProvider: sttProviderName,
+    ttsProvider: ttsProviderName,
+  });
   await apiServer.start();
 
   logger.info(`Browser mode ready. API at http://localhost:${apiPort}`);
