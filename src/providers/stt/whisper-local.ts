@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import FormData from 'form-data';
 import { request } from 'undici';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 import type { STTProvider, STTConfig } from './interface.js';
 
 /**

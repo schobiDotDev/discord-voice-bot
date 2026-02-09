@@ -1,4 +1,5 @@
 import { config as dotenvConfig } from 'dotenv';
+import logger from './utils/logger.js';
 
 dotenvConfig();
 
@@ -9,12 +10,11 @@ if (mode === 'browser') {
   // Imported dynamically to avoid loading bot-mode config (which requires DISCORD_TOKEN)
   const { startBrowserMode } = await import('./modes/browser/entry.js');
   startBrowserMode().catch((error) => {
-    console.error(`[${new Date().toISOString()}] [ERROR] Failed to start browser mode: ${error}`);
+    logger.error(`Failed to start browser mode: ${error}`);
     process.exit(1);
   });
 } else {
   // Bot mode — default Discord.js bot (existing behavior)
-  const { logger } = await import('./utils/logger.js');
 
   // Global error handlers to prevent silent crashes
   process.on('uncaughtException', (error) => {

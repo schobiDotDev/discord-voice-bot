@@ -1,6 +1,6 @@
 import { Client, Events, Message, TextChannel, type Snowflake } from 'discord.js';
 import { config } from '../config.js';
-import { logger } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import { EventEmitter } from 'events';
 
 interface PendingRequest {

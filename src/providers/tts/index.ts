@@ -1,5 +1,5 @@
 import { config } from '../../config.js';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 import type { TTSProvider } from './interface.js';
 import { OpenAITTSProvider } from './openai-tts.js';
 import { SherpaOnnxProvider } from './sherpa-onnx.js';

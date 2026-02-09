@@ -3,7 +3,7 @@ import { createWriteStream, promises as fs } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import path from 'node:path';
-import { logger } from './logger.js';
+import logger from './logger.js';
 
 const RECORDINGS_DIR = './recordings';
 const SOUNDS_DIR = './sounds';

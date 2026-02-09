@@ -1,5 +1,5 @@
 import { config } from '../../config.js';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 import type { STTProvider } from './interface.js';
 import { WhisperAPIProvider } from './whisper-api.js';
 import { WhisperLocalProvider } from './whisper-local.js';

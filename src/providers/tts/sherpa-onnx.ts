@@ -1,5 +1,5 @@
 import { request } from 'undici';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 import type { TTSProvider, TTSConfig } from './interface.js';
 
 /**

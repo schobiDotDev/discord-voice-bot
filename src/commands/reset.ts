@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
-import { logger } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import type { ConversationService } from '../services/index.js';
 
 export const data = new SlashCommandBuilder()

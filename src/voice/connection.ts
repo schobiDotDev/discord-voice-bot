@@ -5,7 +5,7 @@ import {
   entersState,
 } from '@discordjs/voice';
 import type { VoiceBasedChannel, Guild } from 'discord.js';
-import { logger } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 
 /**
  * Manages voice channel connections for the bot

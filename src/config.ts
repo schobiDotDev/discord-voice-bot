@@ -32,6 +32,11 @@ const configSchema = z.object({
     responseTimeout: z.number().int().positive().default(30000),
   }),
 
+  // OpenClaw bridge (optional — when set, transcriptions route to OpenClaw)
+  openclawBridge: z.object({
+    url: z.string().url().optional(),
+  }).default({}),
+
   // STT
   stt: z.object({
     provider: z.enum(['whisper-api', 'whisper-local']).default('whisper-api'),
@@ -124,6 +129,9 @@ function parseConfig(): Config {
       channelId: process.env.TEXT_CHANNEL_ID ?? '',
       responderBotId: process.env.RESPONDER_BOT_ID ?? '',
       responseTimeout: parseInt(process.env.RESPONSE_TIMEOUT ?? '30000', 10),
+    },
+    openclawBridge: {
+      url: process.env.OPENCLAW_BRIDGE_URL || undefined,
     },
     stt: {
       provider: process.env.STT_PROVIDER ?? 'whisper-api',
